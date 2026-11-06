@@ -1,0 +1,14 @@
+{
+  "role": "AI Agent / 后端",
+  "count": 1,
+  "questions": [
+    {
+      "id": "Q1",
+      "category": "技术",
+      "topic": "ReAct 循环",
+      "question": "请讲讲 ReAct 循环的步骤、终止条件与常见坑。",
+      "points": ["循环步骤", "终止条件", "异常处理"],
+      "followups": ["如何防死循环？"]
+    }
+  ]
+}

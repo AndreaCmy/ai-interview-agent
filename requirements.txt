@@ -1,0 +1,4 @@
+# 核心依赖（v0.1 只需这两个即可跑真实 LLM；stub 模式纯标准库）
+openai>=1.30.0
+python-dotenv>=1.0.0
+pypdf>=4.0        # 简历 PDF 抽文字（tools/to_text.py）

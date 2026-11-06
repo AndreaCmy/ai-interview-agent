@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 面试 Agent · 从零手写 ReAct 循环</title>
+<style>
+  :root{
+    --bg:#f7f8f7; --card:#fff; --ink:#1c2321; --muted:#5f6b68;
+    --line:#e4e7e5; --accent:#0f766e; --accent-soft:#e6f2ef;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:48px 22px 64px}
+  header{border-bottom:1px solid var(--line); padding-bottom:22px}
+  h1{font-size:26px; margin:0 0 10px; letter-spacing:.3px}
+  .lead{margin:0; color:var(--muted); font-size:15px}
+  .tag{
+    display:inline-block; margin:16px 8px 0 0; padding:4px 10px; border-radius:999px;
+    background:var(--accent-soft); color:var(--accent); font-size:13px;
+  }
+  section{margin-top:34px}
+  h2{font-size:17px; margin:0 0 14px; padding-left:10px; border-left:3px solid var(--accent); line-height:1.4}
+  .grid{display:flex; flex-wrap:wrap; gap:12px}
+  .card{
+    flex:1 1 220px; background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; text-decoration:none; color:inherit; transition:border-color .15s, transform .15s;
+  }
+  .card:hover{border-color:var(--accent); transform:translateY(-2px)}
+  .card b{display:block; font-size:15px; margin-bottom:4px}
+  .card span{color:var(--muted); font-size:13px; line-height:1.6}
+  .shot{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px}
+  .shot img{width:100%; display:block; border-radius:8px}
+  .cap{color:var(--muted); font-size:13px; margin:8px 4px 2px}
+  ul.dots{margin:0; padding-left:20px; color:var(--muted)}
+  ul.dots li{margin:6px 0}
+  ul.dots b{color:var(--ink); font-weight:600}
+  footer{margin-top:44px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:13px}
+  a{color:var(--accent)}
+  @media (max-width:520px){ .wrap{padding:30px 16px 48px} h1{font-size:22px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>AI 面试 Agent</h1>
+    <p class="lead">从零手写 ReAct 循环的面试陪练：读 JD + 简历 → 生成对口题库 → 逐题模拟面试 → 按 rubric 打分复盘。</p>
+    <div>
+      <span class="tag">手写 loop</span>
+      <span class="tag">LLM 调用有硬预算</span>
+      <span class="tag">六维评分</span>
+      <span class="tag">SQLite 落库</span>
+      <span class="tag">单文件回放页</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>先看效果</h2>
+    <div class="grid">
+      <a class="card" href="demo/index.html">
+        <b>运行回放页 →</b>
+        <span>一次真实运行的数据快照：六维评分、雷达图、模型引用的原文依据、复盘报告。</span>
+      </a>
+      <a class="card" href="demo/architecture-p0-p2.png">
+        <b>架构图 →</b>
+        <span>五层结构 + 每层 LLM 调用次数 + 每题循环的时序。</span>
+      </a>
+      <a class="card" href="https://github.com/AndreaCmy/ai-interview-agent#readme">
+        <b>README →</b>
+        <span>怎么装、怎么用、调用预算怎么算、与学习仓库的对应关系。</span>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>这一页长什么样</h2>
+    <div class="shot">
+      <a href="demo/index.html"><img src="demo/preview.png" alt="一次真实运行的回放页截图"></a>
+      <p class="cap">回放页静态封面：1 题、2 次调用、总分 3.10，数据来自 <code>interview.db</code> 的 <code>sessions#1</code></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>几个刻意的设计</h2>
+    <ul class="dots">
+      <li><b>核心是手写的</b>：agent loop、工具调用、消息拼装全部自己写，只用 SDK 不做骨架。</li>
+      <li><b>成本可控</b>：<code>BudgetedLLM</code> 包一层硬上限，超了直接抛 <code>BudgetExceeded</code>，一场面试 = 题数 + 1 次。</li>
+      <li><b>分数由代码算</b>：六维 0–5，权重在 <code>scoring.py</code> 里加权，模型给的 total 丢弃不用。</li>
+      <li><b>可复盘</b>：每题打分 + 总报告都落 SQLite，能离线重放。</li>
+    </ul>
+  </section>
+
+  <footer>
+    源码：<a href="https://github.com/AndreaCmy/ai-interview-agent">github.com/AndreaCmy/ai-interview-agent</a>
+    ｜ LLM：DeepSeek（OpenAI 兼容接口）
+  </footer>
+
+</div>
+</body>
+</html>

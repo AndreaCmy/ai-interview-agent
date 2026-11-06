@@ -1,0 +1,37 @@
+# ============ 密钥：任何情况都不进仓库 ============
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# ============ 虚拟环境与缓存 ============
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ============ 本地产物与运行时数据 ============
+*.db
+*.sqlite
+*.sqlite3
+trace/
+.preview/
+*.log
+
+# ============ 系统杂项 ============
+.DS_Store
+._*
+Thumbs.db
+
+# ============ 由真实简历/JD 生成，公开前请替换为脱敏样例 ============
+# 本地保留即可；如需公开，先改写内容再 git add -f demo/bank-sample.md
+demo/bank-sample.md
+demo/bank-sample.json
+
+# ============ 个人练习区：真实 JD / 简历 / 场次记录，永不入库 ============
+my/

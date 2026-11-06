@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 面试 Agent · 一次真实运行的回放</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f5f7f8;color:#1e293b;font-family:"PingFang SC","Helvetica Neue",Arial,sans-serif;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:44px 32px 64px}
+.hd{border-bottom:1px solid #e2e8ec;padding-bottom:22px;margin-bottom:26px}
+.hd h1{font-size:30px;font-weight:800;letter-spacing:-.3px}
+.hd .sub{margin-top:8px;color:#64748b;font-size:15px}
+.chips{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:#fff;border:1px solid #e2e8ec;border-radius:999px;padding:4px 13px;font-size:13.5px;color:#475569}
+.chip b{color:#0f766e}
+.chip.hot{border-color:#f3d9b4;background:#fffaf2;color:#b45309}
+.chip.hot b{color:#b45309}
+
+.grid{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.col{flex:1 1 520px;min-width:320px;display:flex;flex-direction:column;gap:18px}
+.card{background:#fff;border:1px solid #e5ebef;border-radius:14px;padding:20px 22px}
+.card h2{font-size:15px;font-weight:700;color:#0f766e;letter-spacing:.2px;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.card h2::before{content:"";width:4px;height:15px;background:#0f766e;border-radius:2px;display:inline-block}
+.qmeta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.tag{font-size:12.5px;background:#eef5f3;color:#0f766e;border-radius:5px;padding:2px 9px}
+.tag.gray{background:#f1f5f9;color:#64748b}
+.qtext{font-size:17px;font-weight:600;color:#0f172a;line-height:1.75}
+.ans{margin-top:16px;background:#f8fafb;border:1px solid #e5ebef;border-radius:10px;padding:14px 16px}
+.ans .who{font-size:12.5px;color:#94a3b8;margin-bottom:6px}
+.ans .body{font-size:15.5px;color:#334155}
+
+.scoreTop{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+.total{display:flex;align-items:baseline;gap:6px}
+.total .n{font-size:52px;font-weight:800;color:#0f766e;line-height:1;letter-spacing:-2px}
+.total .d{font-size:15px;color:#94a3b8}
+.verdict{font-size:14px;color:#64748b;flex:1 1 220px;min-width:180px;line-height:1.6}
+.bars{display:flex;flex-direction:column;gap:12px}
+.bar{display:grid;grid-template-columns:74px 1fr 42px 66px;align-items:center;gap:10px;font-size:14px}
+.bar .name{color:#334155;font-weight:600;white-space:nowrap}
+.bar .track{display:block;height:9px;background:#eef2f4;border-radius:5px;overflow:hidden}
+.bar .fill{display:block;height:9px;border-radius:5px;background:#0f766e}
+.bar .fill.warn{background:#c2410c}
+.bar .val{text-align:right;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums}
+.bar .wt{text-align:right;color:#94a3b8;font-size:12.5px;white-space:nowrap}
+.radar{display:flex;justify-content:center;margin:2px 0 10px}
+svg{max-width:100%;height:auto}
+
+.ev{list-style:none;display:flex;flex-direction:column;gap:10px}
+.ev li{border-left:3px solid #cfe3de;padding:1px 0 1px 12px;font-size:14.5px;color:#475569}
+.duo{display:flex;flex-wrap:wrap;gap:18px}
+.duo>div{flex:1 1 240px;min-width:200px}
+.duo h3{font-size:13.5px;color:#0f766e;font-weight:700;margin-bottom:9px}
+.duo h3.bad{color:#b45309}
+.duo ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.duo li{font-size:14px;color:#475569;padding-left:14px;position:relative}
+.duo li::before{content:"";position:absolute;left:0;top:9px;width:5px;height:5px;border-radius:50%;background:#9fd3c7}
+.duo li.bad::before{background:#f0b27a}
+
+.budget{display:flex;gap:10px;flex-wrap:wrap}
+.bs{flex:1 1 140px;background:#f8fafb;border:1px solid #e5ebef;border-radius:10px;padding:10px 13px}
+.bs .k{font-size:12.5px;color:#94a3b8}
+.bs .v{font-size:17px;font-weight:700;color:#0f172a;margin-top:2px}
+.bs .v em{font-style:normal;color:#0f766e}
+
+.rep{margin-top:22px}
+.pri{background:#fffaf2;border:1px solid #f3d9b4;border-radius:12px;padding:16px 18px;font-size:15px;color:#7c4a12}
+.pri b{color:#b45309}
+.imp{margin-top:18px}
+.imp .toggle{display:inline-flex;align-items:center;gap:6px;background:#0f766e;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:14px;cursor:pointer;font-family:inherit}
+.imp .toggle:hover{background:#0c5f59}
+.impBody{margin-top:14px;background:#f8fafb;border:1px solid #e5ebef;border-radius:10px;padding:16px 18px;font-size:15px;color:#334155;line-height:1.95}
+.impBody.hide{display:none}
+.sum{margin-top:18px;font-size:15px;color:#334155;border-left:3px solid #9fd3c7;padding-left:14px;line-height:1.85}
+.sum b{color:#0f766e}
+.foot{margin-top:34px;border-top:1px solid #e2e8ec;padding-top:18px;font-size:13px;color:#94a3b8;line-height:1.9}
+.foot code{background:#eef2f4;border-radius:4px;padding:1px 5px;color:#475569;font-size:12.5px}
+@media (max-width:720px){
+ .wrap{padding:26px 16px 44px}
+ .hd h1{font-size:23px}
+ .bar{grid-template-columns:64px 1fr 38px;gap:8px}
+ .bar .wt{display:none}
+ .total .n{font-size:44px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hd">
+    <h1>AI 面试 Agent · 一次真实运行的回放</h1>
+    <div class="sub">题库生成 → 逐题问答 → 六维打分 → 入库 → 复盘报告的完整闭环。本页是那次运行的数据快照，静态展示，不联网、不调用模型。</div>
+    <div class="chips">
+      <span class="chip">角色 <b>AI Agent / 后端</b></span>
+      <span class="chip">会话 <b>#1</b> · 1 题</span>
+      <span class="chip hot">LLM 调用 <b>2 / 2</b></span>
+      <span class="chip">状态 <b>finished</b></span>
+      <span class="chip">2026-11-06</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="col">
+
+      <div class="card">
+        <h2>题目与回答</h2>
+        <div class="qmeta">
+          <span class="tag">技术</span>
+          <span class="tag gray">Q1 / 1</span>
+          <span class="tag gray">topic：ReAct 循环</span>
+        </div>
+        <div class="qtext">请讲讲 ReAct 循环的步骤、终止条件与常见坑。</div>
+        <div class="ans">
+          <div class="who">你的回答（终端输入）</div>
+          <div class="body">每轮把 messages 发给模型；模型若返回 tool_calls 就执行工具、以 role=tool 回喂；直到模型不再调工具返回最终答案。用 max_iter 兜底，工具异常包成 error 文本回喂，避免死循环。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>六维评分</h2>
+        <div class="scoreTop">
+          <div class="total"><span class="n">3.10</span><span class="d">/ 5</span></div>
+          <div class="verdict">准确概括了 ReAct 循环的主干步骤与兜底手段，但缺少推理 / 观察的显式环节，常见坑展开不足。</div>
+        </div>
+        <div class="bars">
+          <div class="bar"><span class="name">正确性</span><span class="track"><span class="fill" style="width:80%"></span></span><span class="val">4.0</span><span class="wt">权重 30%</span></div>
+          <div class="bar"><span class="name">深度</span><span class="track"><span class="fill warn" style="width:40%"></span></span><span class="val">2.0</span><span class="wt">权重 20%</span></div>
+          <div class="bar"><span class="name">工程落地</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="val">3.0</span><span class="wt">权重 20%</span></div>
+          <div class="bar"><span class="name">边界意识</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="val">3.0</span><span class="wt">权重 10%</span></div>
+          <div class="bar"><span class="name">结构</span><span class="track"><span class="fill warn" style="width:40%"></span></span><span class="val">2.0</span><span class="wt">权重 10%</span></div>
+          <div class="bar"><span class="name">表达</span><span class="track"><span class="fill" style="width:80%"></span></span><span class="val">4.0</span><span class="wt">权重 10%</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>亮点与待补</h2>
+        <div class="duo">
+          <div>
+            <h3>讲对的</h3>
+            <ul>
+              <li>步骤主线正确：模型 → tool_calls → 执行 → role=tool 回喂 → 终止</li>
+              <li>给出 max_iter 与工具异常回喂两个工程兜底点</li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="bad">缺的</h3>
+            <ul>
+              <li class="bad">未点明 Thought / Action / Observation 中显式推理环节</li>
+              <li class="bad">终止条件只讲「不再调工具」，未提 max_iter 触发、重复调用、超时</li>
+              <li class="bad">常见坑几乎未展开（工具结果过大、并行调用、幻觉参数、循环振荡）</li>
+              <li class="bad">缺少分层结构与举例</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="col">
+
+      <div class="card">
+        <h2>得分结构</h2>
+        <div class="radar">
+          <svg viewBox="0 0 300 262" role="img" aria-label="六维得分雷达图">
+            <polygon points="150,30 236.6,80 236.6,180 150,230 63.4,180 63.4,80" fill="#f8fafb" stroke="#e2e8ec" stroke-width="1"/>
+            <polygon points="150,80 193.3,105 193.3,155 150,180 106.7,155 106.7,105" fill="none" stroke="#eef2f4" stroke-width="1"/>
+            <line x1="150" y1="130" x2="150" y2="30" stroke="#eef2f4"/>
+            <line x1="150" y1="130" x2="236.6" y2="80" stroke="#eef2f4"/>
+            <line x1="150" y1="130" x2="236.6" y2="180" stroke="#eef2f4"/>
+            <line x1="150" y1="130" x2="150" y2="230" stroke="#eef2f4"/>
+            <line x1="150" y1="130" x2="63.4" y2="180" stroke="#eef2f4"/>
+            <line x1="150" y1="130" x2="63.4" y2="80" stroke="#eef2f4"/>
+            <polygon points="150,50 184.6,110 202,160 150,190 115.4,150 80.7,90" fill="#0f766e" fill-opacity="0.18" stroke="#0f766e" stroke-width="1.6"/>
+            <circle cx="150" cy="50" r="3" fill="#0f766e"/>
+            <circle cx="184.6" cy="110" r="3" fill="#0f766e"/>
+            <circle cx="202" cy="160" r="3" fill="#0f766e"/>
+            <circle cx="150" cy="190" r="3" fill="#0f766e"/>
+            <circle cx="115.4" cy="150" r="3" fill="#0f766e"/>
+            <circle cx="80.7" cy="90" r="3" fill="#0f766e"/>
+            <text x="150" y="18" text-anchor="middle" font-size="12" fill="#64748b">正确性 4.0</text>
+            <text x="248" y="70" text-anchor="start" font-size="12" fill="#64748b">深度 2.0</text>
+            <text x="248" y="190" text-anchor="start" font-size="12" fill="#64748b">工程 3.0</text>
+            <text x="150" y="252" text-anchor="middle" font-size="12" fill="#64748b">边界 3.0</text>
+            <text x="42" y="190" text-anchor="end" font-size="12" fill="#64748b">结构 2.0</text>
+            <text x="42" y="70" text-anchor="end" font-size="12" fill="#64748b">表达 4.0</text>
+          </svg>
+        </div>
+        <div class="budget">
+          <div class="bs"><div class="k">加权总分</div><div class="v">3.10</div></div>
+          <div class="bs"><div class="k">本次消耗</div><div class="v"><em>2</em> 次调用</div></div>
+          <div class="bs"><div class="k">预算上限</div><div class="v">题数 + 1</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>模型引用的原文依据</h2>
+        <ul class="ev">
+          <li>每轮把 messages 发给模型；模型若返回 tool_calls 就执行工具、以 role=tool 回喂</li>
+          <li>直到模型不再调工具返回最终答案</li>
+          <li>用 max_iter 兜底</li>
+          <li>工具异常包成 error 文本回喂，避免死循环</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="rep">
+    <div class="card">
+      <h2>复盘报告 · 复习优先级</h2>
+      <div class="pri"><b>1. Q1 — ReAct 循环</b><br>这是 AI Agent 方向的核心基础题，得分仅 3.1 说明基本功不牢；缺失的显式推理、终止条件与常见坑都是高频追问点，且该题改进话术可直接复用于多轮追问，复习投入产出比最高。</div>
+
+      <div class="imp">
+        <button class="toggle" id="tg" aria-expanded="true">收起改进话术</button>
+        <div class="impBody" id="imp">ReAct 循环可以按以下几点来讲。第一，循环步骤：每轮完成三件事 —— Thought（模型据当前上下文做显式推理，明确下一步要做什么）、Action（若需要，返回 tool_calls 指定工具与参数）、Observation（执行工具，把结果以 role=tool 回喂 messages）；如此循环直到得到最终答案。<br><br>第二，终止条件：① 模型不再发 tool_calls，直接返回最终答案，属正常终止；② 达到 max_iter 或 token / 时间预算，属兜底终止；③ 检测到重复或振荡，即同一工具、同一参数被反复调用，应中止或降级；④ 超时或上游异常，应中断并返回可读错误。<br><br>第三，常见问题：① 工具结果过大撑爆上下文，需截断、摘要或分页；② 并行调用管理，多个 tool_calls 的顺序、依赖与结果合并；③ 幻觉参数，模型编造不存在的工具或参数，需 schema 校验并在失败后回喂错误；④ 循环振荡与死循环，靠 max_iter、重复检测、超时三重兜底；⑤ 工具异常要包成 error 文本回喂，让模型有机会自纠。<br><br>第四，举例：查天气时先 Thought 判断需要天气工具，Action 调 weather(city)，Observation 返回结果后模型不再调工具，直接输出最终回答。</div>
+      </div>
+
+      <div class="sum"><b>整场总评：</b>Q1 回答整体方向正确，能讲清 ReAct 的基本消息流转与兜底思路，但内容偏于简化：缺少显式推理（Thought / Action / Observation）环节，终止条件不完整，常见问题仅一笔带过。作为 AI Agent 方向的基础题，该题深度明显不足，建议优先复习。</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    数据来源：<code>interview.db</code> · <code>sessions#1 / turns idx=1</code> · 报告 <code>demo/report-1q.md</code><br>
+    本页为静态快照：所有分数由 <code>app/scoring.py</code> 在代码端重算（六维加权），模型只负责给分与引用依据。页面不发起任何网络请求。
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('tg'), body = document.getElementById('imp');
+  if(!btn || !body) return;
+  btn.addEventListener('click', function(){
+    var hidden = body.classList.toggle('hide');
+    btn.textContent = hidden ? '展开改进话术' : '收起改进话术';
+    btn.setAttribute('aria-expanded', String(!hidden));
+  });
+})();
+</script>
+</body>
+</html>
