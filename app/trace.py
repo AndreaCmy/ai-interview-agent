@@ -32,8 +32,18 @@ class Tracer:
         if enabled is None:
             enabled = os.getenv("TRACE_ENABLED", "1") not in ("0", "false", "False")
         self.path = Path(path or env_path or DEFAULT_PATH)
+        # enabled：总开关，决定 emit 是否真的落盘。
+        #   优先级 = 显式传参 > 环境变量 TRACE_ENABLED（默认开）> True。
+        #   写文件出错时会被翻成 False（永久静默降级），保证观测不打断面试。
         self.enabled = bool(enabled)
+        # scene：本次运行「属于哪个场景」的标签，原样写进每一行的 scene 字段。
+        #   由入口处 set_scene() 设置，如 ask:分布式状态机 / interview:bank /
+        #   chat / prep / eval:<tag>:<Q1-good>，用来事后把事件按场景切开。
+        #   只影响标注，不影响写入行为。
         self.scene = ""
+        # seq：本进程内的自增序号，emit 一次 +1，从 1 开始。
+        #   作用是把同一进程里的事件排出确定的先后顺序（同 ts 秒级、靠它区分）。
+        #   注意：跨进程不连续——每次运行都从 1 重来，要跨运行串联得看 ts（或以后加 request_id）。
         self.seq = 0
 
     # ---- 上下文 ------------------------------------------------------
@@ -60,7 +70,9 @@ class Tracer:
             # 日志不是关键路径：磁盘只读/无权限时静默降级，不打断面试
             self.enabled = False
 
-    # ---- 三类专用事件 -------------------------------------------------
+    # ---- 四类专用事件 -------------------------------------------------
+    # 都是「组装字段 + 调 emit」的薄包装，唯一写入出口仍然是上面的 emit()。
+    # 顺序是按一次问答的真实时间轴排的：先召回(kb) → 再调模型(llm) → 中间可能调工具(tool) → 最后打分(score)。
     def llm_call(
         self,
         *,
@@ -112,6 +124,19 @@ class Tracer:
         )
 
     def score(self, *, result: Dict[str, Any], reference: Optional[Dict[str, Any]], cap_applied: bool) -> None:
+        """打分收口事件：记录「代码最终认下的分数」，不是模型自己说的分数。
+
+        为什么 llm / kb 不够、还要单独一条 score：
+          - llm 事件只说明「发了什么、模型回了什么」，但最终分不等于模型输出：
+            total 是 app/scoring.py 用六维 × 权重重算的，模型的 total 被丢弃；
+            事实不符时还会被 FACT_MISMATCH_CAP 强制封顶。
+          - 只看 llm + kb，无法回答「为什么最后是 2.50 而不是 4.20」——中间那段代码裁决没留痕。
+          - 这里记的就是裁决结果：六维、重算后的 total、是否触发封顶(cap_applied)、
+            以及对照召回要点后的命中/漏掉清单。
+
+        调用点：app/scoring.py 的 score_answer() 末尾（全仓唯一一处），
+        所以 CLI(ask) / 整场面试(interview) / Web / 评测(eval) 四条路径都会自动落这条。
+        """
         self.emit(
             "score",
             qid=(reference or {}).get("qid"),
