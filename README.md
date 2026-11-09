@@ -132,8 +132,25 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
 
 ## 路线图
 
-- P1 MVP：JD/简历 → 题库生成 + 单题打分 + 报告（Markdown）
-- [x] P2 多轮模拟面试：状态机、追问、会话持久化（SQLite）、调用预算护栏
-- P3 检索 + 可观测：接入 `interview-qa-standard.md` 做 RAG；`trace.jsonl`
-- P4 评测 + Web：golden set 评测；FastAPI 单页界面
-- P5 作品集包装：架构图（✅ 已完成）、运行回放页（✅ 已完成）、录屏、简历话术
+- [x] **P0 脚手架**：手写 ReAct 循环 + 工具调度（stub LLM 也能跑通）
+- [x] **P1 MVP**：JD/简历 → 题库（1 次调用）、单题打分（1 次调用）、Markdown 报告
+- [x] **P2 多轮模拟面试**：一问一答状态机、低分追问、SQLite 会话落库、`BudgetedLLM` 调用预算护栏
+
+当前：
+
+- [x] **P2.5 全流程验收**：10 题完整会话跑通 —— `LLM 调用 11/11`、`turns` 10 条、`sessions` 状态 `finished`、平均分 3.01，报告 157 行（本地 `my/report-full.md`，不入库）
+
+接下来：
+
+- [ ] **P3 检索 + 可观测**
+  - RAG：把 `interview-qa-standard.md`（50 题标准答案集）切块检索，打分时召回参考答案做对照
+  - `trace.jsonl`：每次 LLM 调用与工具调用落一行，能复现「这道题为什么给这个分」
+  - 预期代价：每题检索走本地 embedding / 关键词召回，**不额外增加 LLM 调用次数**
+- [ ] **P4 评测 + Web**
+  - golden set：用自有 30/50 题做评测集，检查打分与人工排序的一致性（`eval/`）
+  - FastAPI 单页：浏览器里答题，复用现有 `run_interview`，不另写一套逻辑
+
+收尾：
+
+- [x] **P5 作品集包装**：架构图、运行回放页、26 秒终端实录 GIF、GitHub Pages 落地页
+- [ ] **P5 收尾**：简历话术（3 条 bullet + 1 段项目描述），最后写
