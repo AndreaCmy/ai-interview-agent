@@ -24,12 +24,21 @@ def run_interview(
     out: Callable[[str], None] = print,
     followup: bool = False,
     max_followups: int = 0,
+    kb: Any = None,
 ) -> Tuple[int, List[Dict[str, Any]]]:
     sid = store.create_session(role, bank)
     turns: List[Dict[str, Any]] = []
     questions = bank.get("questions", [])
     seq = 0
     total_q = len(questions)
+
+    def retrieve(q: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if kb is None:
+            return None
+        try:
+            return kb.retrieve(q.get("question", ""), q.get("topic", ""))
+        except Exception:
+            return None  # 知识库异常不影响面试主流程
 
     for i, q in enumerate(questions, 1):
         out(f"\n=== 第 {i}/{total_q} 题 · [{q.get('category','技术')}] {q.get('topic','')} ===")
@@ -39,8 +48,9 @@ def run_interview(
             out("（已跳过本题，不计分）")
             continue
 
+        ref = retrieve(q)
         try:
-            item = score_answer(llm, q.get("question", ""), answer, role=role)
+            item = score_answer(llm, q.get("question", ""), answer, role=role, reference=ref)
         except BudgetExceeded as e:
             out(f"\n[预算用尽] {e} 停止继续出题，已记录的题目仍会进报告。")
             break
@@ -60,7 +70,7 @@ def run_interview(
             fa = input_fn("追问回答（回车跳过）> ")
             if fa and fa.strip():
                 try:
-                    fi = score_answer(llm, fu, fa, role=role)
+                    fi = score_answer(llm, fu, fa, role=role, reference=retrieve({"question": fu}))
                 except BudgetExceeded as e:
                     out(f"\n[预算用尽] {e}")
                     break
@@ -84,6 +94,7 @@ def generate_report(llm: Any, bank: Dict[str, Any], turns: List[Dict[str, Any]],
         return None
     payload = []
     for t in turns:
+        ref = t.get("reference") or {}
         payload.append({
             "id": t.get("id", ""),
             "topic": t.get("topic", ""),
@@ -91,6 +102,10 @@ def generate_report(llm: Any, bank: Dict[str, Any], turns: List[Dict[str, Any]],
             "answer": t.get("answer", ""),
             "total": t.get("total", 0),
             "weaknesses": t.get("weaknesses", []),
+            "covered": t.get("covered", []),
+            "missing": t.get("missing", []),
+            "reference_points": ref.get("points", []),
+            "reference_numbers": ref.get("numbers", ""),
         })
     user = (
         f"岗位方向：{role}\n\n"
@@ -98,6 +113,11 @@ def generate_report(llm: Any, bank: Dict[str, Any], turns: List[Dict[str, Any]],
         + "\n".join(
             f"- {p['id']} [{p['topic']}] 得分{p['total']}；问题：{p['question']}；"
             f"回答：{p['answer']}；不足：{'；'.join(str(x) for x in p['weaknesses'])}"
+            + (f"；命中要点：{'；'.join(str(x) for x in p['covered'])}" if p["covered"] else "")
+            + (f"；漏掉要点：{'；'.join(str(x) for x in p['missing'])}" if p["missing"] else "")
+            + (f"\n  【参考要点】{'｜'.join(str(x)[:80] for x in p['reference_points'][:6])}"
+               + (f"（关键数字：{p['reference_numbers']}）" if p["reference_numbers"] else "")
+               if p["reference_points"] else "")
             for p in payload
         )
         + "\n\n请输出复盘 JSON。"

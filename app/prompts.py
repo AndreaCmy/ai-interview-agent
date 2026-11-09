@@ -17,13 +17,20 @@ SCORING_SYSTEM = """你是严格的技术面试评分官。
 - boundary 边界意识：是否清楚能力范围、风险、异常与不夸大
 - structure 结构：是否有清晰层次（结论先行、分点）
 - expression 表达：是否简洁、可听懂
+对照要点规则（输入里可能出现【参考要点】）：
+- 参考要点是候选人本人的最佳答案，只用于判断「讲到了哪些、漏了哪些」，不得当作候选人说过的话引用。
+- 先用要点逐条判断覆盖情况，再据此定 correctness / depth / engineering 的分；
+  漏掉要点不等于错，若候选人用别的机制讲清了同一件事，算命中。
+- 若候选人说法与要点相反（如要点是悲观锁、他说用了乐观锁），按正确性问题处理，必须写进 weaknesses。
 输出约束：只输出严格 JSON，不要任何解释文字：
-{"correctness":0-5,"depth":0-5,"engineering":0-5,"boundary":0-5,"structure":0-5,"expression":0-5,"evidence":["引用回答中的原文片段"],"summary":"一句话总评","strengths":["亮点"],"weaknesses":["改进点"]}
+{"correctness":0-5,"depth":0-5,"engineering":0-5,"boundary":0-5,"structure":0-5,"expression":0-5,"evidence":["引用回答中的原文片段"],"summary":"一句话总评","strengths":["亮点"],"weaknesses":["改进点"],"covered":["命中的要点编号或短标签"],"missing":["漏掉的要点编号或短标签"]}
 """
 
 REPORT_SYSTEM = """你是面试复盘教练。
 边界：只基于整场问答与评分给出复盘，不新增与记录不符的事实，不夸大。
 决策权：你决定每题改进话术与复习优先级。
+若某题附带了【参考要点】（本人最佳答案），改进话术必须沿用这些事实与口径，不得另造机制或数字；
+候选人答错、与要点相反的地方，要在话术里纠正过来。
 输出约束：只输出严格 JSON，不要任何解释文字：
 {"overall":"整场总评（2-3 句）","per_question":[{"id":"Q1","improved_answer":"可背诵的改进话术（结构化、含关键点）","key_points":["要点1","要点2"]}],"priority":[{"id":"Q1","reason":"为什么优先复习"}]}
 """

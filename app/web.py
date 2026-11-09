@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from .budget import BudgetedLLM, BudgetExceeded
 from .interview import generate_report
+from .kb import DEFAULT_KB, KnowledgeBase
 from .llm import RealLLM
 from .report import bank_to_markdown, session_report_markdown
 from .scoring import DIM_CN, DIMENSIONS, WEIGHTS, score_answer
@@ -31,6 +32,7 @@ WEB_DIR = ROOT / "web"
 BANK_DEFAULT = ROOT / "my" / "bank.json"
 DB_DEFAULT = pathlib.Path(os.getenv("WEB_DB", str(ROOT / "my" / "web-interview.db")))
 DEFAULT_ROLE = "AI Agent / 后端"
+KB_DEFAULT = pathlib.Path(os.getenv("WEB_KB", str(DEFAULT_KB)))
 
 app = FastAPI(title="AI 面试 Agent · Web")
 
@@ -50,6 +52,7 @@ class State:
         self.llm: Optional[BudgetedLLM] = None
         self.report_md: Optional[str] = None
         self.report_path: Optional[str] = None
+        self.kb: Optional[KnowledgeBase] = None
 
 
 state = State()
@@ -137,6 +140,7 @@ def start_session(req: StartReq) -> Dict[str, Any]:
     ]
     max_calls = int(os.getenv("WEB_MAX_CALLS", str(len(questions) + 1)))
     state.llm = _make_llm(max_calls)
+    state.kb = KnowledgeBase(KB_DEFAULT)
     store = SessionStore(str(DB_DEFAULT))
     state.session_id = store.create_session(role, bank)
     store.close()
@@ -155,8 +159,14 @@ def answer(req: AnswerReq) -> Dict[str, Any]:
         raise HTTPException(400, "回答不能为空（空答不计分）")
 
     q = state.questions[req.index - 1]
+    ref = None
+    if state.kb is not None:
+        try:
+            ref = state.kb.retrieve(q["question"], q["topic"])
+        except Exception:
+            ref = None
     try:
-        item = score_answer(state.llm, q["question"], text, role=state.role)
+        item = score_answer(state.llm, q["question"], text, role=state.role, reference=ref)
     except BudgetExceeded as e:
         raise HTTPException(429, f"预算用尽：{e}")
 

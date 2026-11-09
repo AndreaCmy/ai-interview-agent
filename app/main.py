@@ -23,6 +23,7 @@ from .report import bank_to_markdown, score_to_markdown, session_report_markdown
 from .budget import BudgetedLLM, BudgetExceeded
 from .session import SessionStore
 from .interview import run_interview, generate_report
+from .kb import DEFAULT_KB, KnowledgeBase
 
 SYSTEM = (
     "你是一位经验丰富的技术面试官，风格专业、克制。"
@@ -102,11 +103,21 @@ def cmd_prep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _make_kb(path: str | None):
+    kb = KnowledgeBase(path or DEFAULT_KB)
+    print(f"[知识库] {kb.path} | 段落 {len(kb.sections)}")
+    return kb
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     llm = _make_real()
     if not llm:
         return 2
-    item = _wrap_api(lambda: score_answer(llm, args.question, args.answer, role=args.role))
+    kb = _make_kb(getattr(args, "kb", None))
+    ref = kb.retrieve(args.question, args.topic or "")
+    if ref:
+        print(f"[召回] {ref['qid']} · {ref['topic']}（分 {ref['score']}）")
+    item = _wrap_api(lambda: score_answer(llm, args.question, args.answer, role=args.role, reference=ref))
     if item is None:
         return 1
     md = score_to_markdown(item)
@@ -133,10 +144,12 @@ def cmd_interview(args: argparse.Namespace) -> int:
     budget = BudgetedLLM(llm, max_calls, label="LLM")
 
     store = SessionStore(args.db)
+    kb = _make_kb(getattr(args, "kb", None))
     sid, turns = run_interview(
         budget, bank, args.role, store,
         input_fn=input, out=print,
         followup=args.followup, max_followups=args.max_followups,
+        kb=kb,
     )
     report_data = generate_report(budget, bank, turns, args.role)
     md = session_report_markdown(bank, turns, report_data)
@@ -173,6 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--question", required=True, help="面试题")
     a.add_argument("--answer", required=True, help="候选人回答")
     a.add_argument("--role", default="AI Agent / 后端", help="岗位方向")
+    a.add_argument("--topic", default="", help="题目主题（帮助检索命中对应要点）")
+    a.add_argument("--kb", default=None, help="对照要点库路径（默认 my/best-answers.md）")
     a.add_argument("-o", "--out", help="评分卡 Markdown 输出路径")
     a.set_defaults(func=cmd_ask)
 
@@ -183,6 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--followup", action="store_true", help="对低分题自动追问（每追问 +1 次调用）")
     iv.add_argument("--max-followups", type=int, default=2, help="最多追问次数")
     iv.add_argument("--db", default="interview.db", help="SQLite 数据库路径")
+    iv.add_argument("--kb", default=None, help="对照要点库路径（默认 my/best-answers.md）")
     iv.add_argument("-o", "--out", help="报告 Markdown 输出路径")
     iv.set_defaults(func=cmd_interview)
 

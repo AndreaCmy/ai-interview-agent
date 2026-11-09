@@ -37,12 +37,51 @@ def _clamp(v: Any, lo: float = 0.0, hi: float = 5.0) -> float:
     return max(lo, min(hi, v))
 
 
-def score_answer(llm: Any, question: str, answer: str, role: str = "AI Agent / 后端") -> Dict[str, Any]:
+def _ref_block(reference: Dict[str, Any] | None) -> str:
+    """把召回要点拼成 prompt 片段；没有召回就返回空串（退化回 P2 行为）。"""
+    if not reference:
+        return ""
+    pts = reference.get("points") or []
+    lines = [f"\n\n【参考要点（本人最佳答案，仅作覆盖度对照）】", f"题目标签：{reference.get('topic','')}"]
+    for i, p in enumerate(pts[:6], 1):
+        lines.append(f"{i}. {str(p.get('text', ''))[:100]}")
+    if reference.get("numbers"):
+        lines.append(f"关键数字：{str(reference['numbers'])[:100]}")
+    if reference.get("boundary"):
+        lines.append(f"容易说过的边界：{str(reference['boundary'])[:100]}")
+    return "\n".join(lines)
+
+
+def _norm_list(v: Any, points: List[Dict[str, Any]]) -> List[str]:
+    """把模型返回的「编号 / 短标签」统一成可读标签。"""
+    if not isinstance(v, list):
+        return []
+    out: List[str] = []
+    for x in v:
+        s = str(x).strip()
+        if not s:
+            continue
+        if s.isdigit() and 1 <= int(s) <= len(points):
+            out.append(points[int(s) - 1].get("label", s))
+        else:
+            out.append(s)
+    return out
+
+
+def score_answer(
+    llm: Any,
+    question: str,
+    answer: str,
+    role: str = "AI Agent / 后端",
+    reference: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """reference 是 kb.retrieve() 的结果；只用于对照覆盖度，不额外增加调用次数。"""
     user = (
         f"岗位方向：{role}\n\n"
         f"【面试问题】\n{question}\n\n"
-        f"【候选人回答】\n{answer}\n\n"
-        f"请按六维 rubric 打分并输出 JSON。"
+        f"【候选人回答】\n{answer}"
+        f"{_ref_block(reference)}\n\n"
+        f"请按六维 rubric 打分，并给出 covered / missing 对照结果，输出 JSON。"
     )
     resp = llm.chat([
         {"role": "system", "content": SCORING_SYSTEM},
@@ -54,6 +93,10 @@ def score_answer(llm: Any, question: str, answer: str, role: str = "AI Agent / �
     scores = {d: _clamp(data.get(d, 0)) for d in DIMENSIONS}
     total = round(sum(scores[d] * WEIGHTS[d] for d in DIMENSIONS), 2)
 
+    points = (reference or {}).get("points") or []
+    covered = _norm_list(data.get("covered", []), points)
+    missing = _norm_list(data.get("missing", []), points)
+
     return {
         "question": question,
         "answer": answer,
@@ -63,4 +106,13 @@ def score_answer(llm: Any, question: str, answer: str, role: str = "AI Agent / �
         "summary": data.get("summary", ""),
         "strengths": data.get("strengths", []),
         "weaknesses": data.get("weaknesses", []),
+        "covered": covered,
+        "missing": missing,
+        "reference": {
+            "qid": (reference or {}).get("qid", ""),
+            "topic": (reference or {}).get("topic", ""),
+            "score": (reference or {}).get("score", 0),
+            "points": [p.get("text", "") for p in points],
+            "numbers": (reference or {}).get("numbers", ""),
+        } if reference else None,
     }

@@ -38,6 +38,13 @@ def score_to_markdown(item: Dict[str, Any]) -> str:
         for e in item["evidence"]:
             lines.append(f"- {e}")
         lines.append("")
+    if item.get("covered"):
+        lines.append("**命中要点**：" + "；".join(str(x) for x in item["covered"]))
+    if item.get("missing"):
+        lines.append("**漏掉的要点**：" + "；".join(str(x) for x in item["missing"]))
+    ref = item.get("reference") or {}
+    if ref.get("topic"):
+        lines.append(f"**对照依据**：{ref['topic']}（{ref.get('qid','')}，检索分 {ref.get('score','')}）")
     if item.get("strengths"):
         lines.append("**亮点**：" + "；".join(str(x) for x in item["strengths"]))
     if item.get("weaknesses"):
@@ -90,6 +97,14 @@ def session_report_markdown(
         lines.append("")
         lines.append(f"**你的回答**：{t.get('answer','')}")
         lines.append("")
+        if t.get("covered") or t.get("missing"):
+            ref = t.get("reference") or {}
+            tag = f"（对照 {ref['qid']}）" if ref.get("qid") else ""
+            if t.get("covered"):
+                lines.append(f"**命中要点{tag}**：" + "；".join(str(x) for x in t["covered"]))
+            if t.get("missing"):
+                lines.append(f"**漏掉的要点{tag}**：" + "；".join(str(x) for x in t["missing"]))
+            lines.append("")
         p = per_q.get(qid)
         if p and p.get("improved_answer"):
             lines.append("**改进话术（可背诵）**：")
