@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 面试 Agent · 模拟面试</title>
+<style>
+  :root{
+    --bg:#f6f7f7; --card:#fff; --line:#e5e8e8; --ink:#1f2933; --muted:#6b7280;
+    --accent:#0f766e; --accent-soft:#e6f2f0; --warn:#b45309; --warn-soft:#fdf3e7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.7 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 20px 48px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  h1{font-size:20px;margin:0;font-weight:600}
+  .sub{color:var(--muted);font-size:13px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .chip{background:#fff;border:1px solid var(--line);border-radius:999px;
+        padding:4px 12px;font-size:12px;color:var(--muted)}
+  .chip b{color:var(--ink);font-weight:600}
+  .layout{display:grid;grid-template-columns:270px 1fr;gap:16px;align-items:start}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .qlist{padding:8px}
+  .qlist h2{font-size:13px;color:var(--muted);margin:6px 8px 10px;font-weight:600;letter-spacing:.04em}
+  .qitem{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border-radius:8px;
+         cursor:pointer;border:1px solid transparent}
+  .qitem:hover{background:#f1f4f3}
+  .qitem.active{background:var(--accent-soft);border-color:#cfe5e1}
+  .qno{font-size:11px;color:var(--muted);min-width:24px;padding-top:2px}
+  .qtxt{font-size:13px;line-height:1.5;flex:1}
+  .score{font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;
+         color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:1px 6px}
+  .score.mid{color:var(--warn);background:var(--warn-soft)}
+  .score.none{color:#9aa3ab;background:#f1f2f3}
+  .qhead{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .tag{font-size:12px;color:var(--accent);background:var(--accent-soft);
+       border-radius:6px;padding:2px 8px}
+  .tag.proj{color:#7c4a12;background:#fbf1e3}
+  .tag.behav{color:#4b5563;background:#f1f2f3}
+  .qtext{font-size:15px;line-height:1.75;margin:8px 0 16px}
+  textarea{width:100%;min-height:132px;border:1px solid var(--line);border-radius:10px;
+           padding:11px 12px;font:inherit;line-height:1.7;resize:vertical;background:#fcfdfd}
+  textarea:focus{outline:none;border-color:#9fd0c9;background:#fff}
+  .row{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  button{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:9px;
+         padding:9px 18px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:#0b5f59}
+  button.ghost{background:#fff;color:var(--accent)}
+  button.ghost:hover{background:var(--accent-soft)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .hint{color:var(--muted);font-size:12px}
+  .scorecard{margin-top:16px;display:none}
+  .bignum{font-size:34px;font-weight:700;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+  .bignum small{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px}
+  .dims{margin-top:14px;display:grid;gap:9px}
+  .dim{display:grid;grid-template-columns:76px 1fr 110px;gap:10px;align-items:center;font-size:13px}
+  .bar{height:8px;border-radius:6px;background:#eef1f1;overflow:hidden}
+  .bar>span{display:block;height:100%;background:var(--accent);border-radius:6px}
+  .bar>span.low{background:#d97706}
+  .dim .w{color:var(--muted);font-size:11px;white-space:nowrap}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+  .two h4{margin:0 0 6px;font-size:12px;color:var(--muted);letter-spacing:.04em}
+  .two ul{margin:0;padding-left:18px} .two li{margin:2px 0}
+  .quote{border-left:3px solid #cfe5e1;padding:2px 0 2px 10px;color:#374151;font-size:13px;margin:6px 0}
+  .report{margin-top:16px;display:none}
+  pre{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.75 ui-monospace,Menlo,Consolas,monospace}
+  .empty{color:var(--muted);font-size:13px}
+  footer{margin-top:20px;color:var(--muted);font-size:12px}
+  .err{color:#b91c1c;font-size:13px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI 面试 Agent</h1>
+    <span class="sub">读 JD + 简历 → 题库 → 一问一答 → 六维打分 → 复盘报告</span>
+    <div class="chips">
+      <div class="chip">岗位 <b id="chipRole">—</b></div>
+      <div class="chip">会话 <b id="chipSid">—</b></div>
+      <div class="chip">LLM 调用 <b id="chipCalls">0 / 0</b></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="card qlist">
+      <h2>题目</h2>
+      <div id="qlist"><p class="empty">点右侧「开始新面试」载入题库</p></div>
+      <div class="row" style="margin:12px 8px 4px">
+        <button class="ghost" id="btnStart">开始新面试</button>
+      </div>
+    </aside>
+
+    <main>
+      <section class="card" id="panel">
+        <div class="qhead">
+          <span class="tag" id="tagCat">技术</span>
+          <span class="hint" id="qMeta">—</span>
+        </div>
+        <div class="qtext" id="qText">载入中…</div>
+        <textarea id="answer" placeholder="用你自己的话讲：结构 / 参数 / 失败路径 / 怎么验证。空答不计分。"></textarea>
+        <div class="row">
+          <button id="btnScore" disabled>提交并打分（1 次调用）</button>
+          <span class="hint" id="scoredHint"></span>
+        </div>
+        <div class="err" id="err"></div>
+
+        <div class="scorecard" id="scorecard">
+          <div class="bignum" id="bigTotal">0.00<small>加权总分（代码端重算）</small></div>
+          <div class="dims" id="dims"></div>
+          <div class="two">
+            <div><h4>亮点</h4><ul id="strengths"></ul></div>
+            <div><h4>待补</h4><ul id="weaknesses"></ul></div>
+          </div>
+          <div id="evidenceBox" style="margin-top:14px"></div>
+        </div>
+      </section>
+
+      <section class="card report" id="reportBox" style="margin-top:16px">
+        <div class="qhead"><span class="tag">复盘报告</span>
+          <span class="hint" id="reportPath"></span></div>
+        <pre id="reportMd"></pre>
+      </section>
+
+      <div class="row" style="margin-top:14px">
+        <button class="ghost" id="btnReport" disabled>生成整场复盘（1 次调用）</button>
+        <span class="hint">预算：题数 + 1，超出即停（BudgetedLLM 硬护栏）</span>
+      </div>
+    </main>
+  </div>
+
+  <footer>分数由 <code>app/scoring.py</code> 在代码端按权重重算，模型给的 total 一律丢弃。</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let S = {questions: [], turns: [], report_md: null, calls: {used:0, max:0}, role: "—", session_id: null};
+let cur = 0;
+
+function fmt(n){ return Number(n).toFixed(2); }
+function clsTotal(t){ return t >= 3.5 ? 'score' : (t > 0 ? 'score mid' : 'score none'); }
+function catClass(c){ return c === '项目' ? 'tag proj' : (c === '行为' ? 'tag behav' : 'tag'); }
+
+function renderChips(){
+  $('chipRole').textContent = S.role || '—';
+  $('chipSid').textContent = S.session_id ? '#' + S.session_id : '—';
+  $('chipCalls').textContent = `${S.calls.used} / ${S.calls.max}`;
+}
+
+function renderList(){
+  const box = $('qlist');
+  if(!S.questions.length){ box.innerHTML = '<p class="empty">点下面「开始新面试」载入题库</p>'; return; }
+  box.innerHTML = S.questions.map((q,i)=>{
+    const t = S.turns.find(x => String(x.id).replace(/-追问$/, '') === q.id);
+    const total = t ? Number(t.total) : 0;
+    return `<div class="qitem ${i===cur?'active':''}" data-i="${i}">
+      <span class="qno">${q.id}</span>
+      <span class="qtxt">${q.topic||''}</span>
+      <span class="${clsTotal(total)}">${t?fmt(total):'—'}</span>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.qitem').forEach(el=>el.onclick=()=>{ cur=Number(el.dataset.i); renderList(); renderPanel(); });
+}
+
+function renderPanel(){
+  const q = S.questions[cur];
+  if(!q){ return; }
+  $('tagCat').textContent = q.category || '技术';
+  $('tagCat').className = catClass(q.category);
+  $('qMeta').textContent = `${cur+1} / ${S.questions.length} · ${q.topic||''}`;
+  $('qText').textContent = q.question;
+  const t = S.turns.find(x => String(x.id).replace(/-追问$/, '') === q.id);
+  $('answer').value = t ? t.answer : '';
+  $('btnScore').disabled = (!S.questions.length || S.replay === true);
+  $('scoredHint').textContent = t ? `已打分 ${fmt(t.total)}，再次提交会覆盖本题` : '';
+  renderCard(t || null);
+}
+
+function renderCard(t){
+  const sc = $('scorecard');
+  if(!t){ sc.style.display='none'; return; }
+  sc.style.display='block';
+  $('bigTotal').innerHTML = `${fmt(t.total)}<small>加权总分（代码端重算）</small>`;
+  $('dims').innerHTML = (t.dims||[]).map(d=>`
+    <div class="dim">
+      <span>${d.name}</span>
+      <span class="bar"><span class="${d.score<3?'low':''}" style="width:${Math.min(100,d.score/5*100)}%"></span></span>
+      <span class="w">${d.score} / 权重 ${(d.weight*100).toFixed(0)}%</span>
+    </div>`).join('');
+  $('strengths').innerHTML = (t.strengths||[]).map(x=>`<li>${x}</li>`).join('') || '<li class="empty">—</li>';
+  $('weaknesses').innerHTML = (t.weaknesses||[]).map(x=>`<li>${x}</li>`).join('') || '<li class="empty">—</li>';
+  const ev = (t.evidence||[]).filter(Boolean);
+  $('evidenceBox').innerHTML = ev.length ? `<h4 style="margin:0 0 6px;font-size:12px;color:#6b7280;letter-spacing:.04em">模型引用的原文依据</h4>` +
+    ev.map(q=>`<div class="quote">${q}</div>`).join('') : '';
+}
+
+function refresh(){ renderChips(); renderList(); renderPanel(); }
+
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json();
+  if(!r.ok) throw new Error(j.detail || '请求失败');
+  return j;
+}
+
+$('btnStart').onclick = async () => {
+  try{
+    $('err').textContent='';
+    const j = await post('/api/session', {});
+    S.questions = j.questions; S.turns=[]; S.report_md=null;
+    S.role = j.role; S.session_id = j.session_id; S.calls = {used:0, max:j.max_calls};
+    cur = 0; $('reportBox').style.display='none'; $('btnReport').disabled=false;
+    refresh();
+  }catch(e){ $('err').textContent = e.message; }
+};
+
+$('btnScore').onclick = async () => {
+  try{
+    $('err').textContent='';
+    $('btnScore').disabled = true;
+    const j = await post('/api/answer', {index: cur+1, answer: $('answer').value});
+    S.calls = j.calls;
+    const t = j.card; const idx = S.turns.findIndex(x=>x.id===t.id);
+    if(idx>=0) S.turns[idx]=t; else S.turns.push(t);
+    refresh();
+  }catch(e){ $('err').textContent = e.message; }
+  finally{ $('btnScore').disabled = (!S.questions.length || S.replay === true); }
+};
+
+$('btnReport').onclick = async () => {
+  try{
+    $('err').textContent='';
+    const j = await post('/api/report', {});
+    S.report_md = j.report_md; S.calls = j.calls;
+    $('reportMd').textContent = j.report_md;
+    $('reportPath').textContent = j.report_path + (j.degraded ? '（预算不足，已降级为本地版）' : '');
+    $('reportBox').style.display='block';
+    renderChips();
+  }catch(e){ $('err').textContent = e.message; }
+};
+
+// 回放模式：/?replay=1 读取历史会话（零 LLM 调用）
+(async function(){
+  const sid = new URLSearchParams(location.search).get('replay');
+  if(!sid){ return; }
+  try{
+    const r = await fetch('/api/replay/' + sid); const j = await r.json();
+    if(!r.ok) throw new Error(j.detail);
+    S.turns = j.turns; S.session_id = j.session_id; S.role = 'AI Agent / 后端'; S.replay = true;
+    S.questions = j.turns.map(t=>({id:t.id, topic:t.topic, category:t.category||'技术', question:t.question}));
+    S.calls = {used: j.turns.length + 1, max: j.turns.length + 1};
+    cur = 0; $('btnReport').disabled = true;
+    refresh();
+    if(j.report_md){ $('reportMd').textContent = j.report_md; $('reportBox').style.display='block'; }
+    $('scoredHint').textContent = '历史回放，只读';
+  }catch(e){ $('err').textContent = e.message; }
+})();
+</script>
+</body>
+</html>

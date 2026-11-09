@@ -2,3 +2,5 @@
 openai>=1.30.0
 python-dotenv>=1.0.0
 pypdf>=4.0        # 简历 PDF 抽文字（tools/to_text.py）
+fastapi>=0.110
+uvicorn>=0.29

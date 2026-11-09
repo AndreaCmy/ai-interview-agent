@@ -171,9 +171,20 @@ case "${1:-help}" in
     "$PY" -m app ask --question "$1" --answer "$2"
     ;;
 
+  web)
+    need_key
+    if [ ! -f "$DIR/bank.json" ]; then
+      echo "${c_warn}还没有题库${c_off}，先跑 ./practice.sh prep" >&2
+      exit 1
+    fi
+    PORT="${2:-8000}"
+    echo "${c_ok}浏览器打开${c_off} http://127.0.0.1:${PORT}"
+    echo "${c_dim}预算=题数+1；Ctrl+C 停止${c_off}"
+    WEB_DB="$DIR/web-interview.db" PORT="$PORT" "$PY" -m app.web
+    ;;
+
   stat)
-    echo "工作区：$DIR"
-    echo "  原件（${RAW}）："
+    echo "工作区：$DIR"    echo "  原件（${RAW}）："
     ls -1 "$RAW" 2>/dev/null | grep -v "说明.txt" | sed 's/^/    /' || echo "    （空）"
     echo "  文本："
     for f in jd.txt resume.txt bank.md bank.json interview.db; do

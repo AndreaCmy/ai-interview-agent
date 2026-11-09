@@ -22,14 +22,19 @@
 - **架构图** [`demo/architecture-p0-p2.png`](demo/architecture-p0-p2.png) —— 讲的是「代码怎么搭的」：谁调谁、在哪花钱
 - 上面这一页的数据来自一次**真实运行**：1 题、2 次 LLM 调用、总分 3.10，落在 `interview.db` 的 `sessions#1 / turns#1`
 
-## 日常怎么用（三步）
+## 日常怎么用（三步，或换成网页点）
 
 ```bash
 ./practice.sh init      # 第一次：建 my/raw/ 工作区
 # 把原件直接丢进 my/raw/：jd.pdf / jd.png / jd.docx / resume.pdf ...
 ./practice.sh prep 10   # 自动转文本 → 10 题题库（1 次调用）
-./practice.sh start     # 开一场模拟面试（每题 1 次打分 + 结尾 1 次报告）
+./practice.sh start     # 终端一问一答（每题 1 次打分 + 结尾 1 次报告）
+./practice.sh web        # 或开网页：http://127.0.0.1:8000
 ```
+
+终端和网页走的是同一套逻辑（`run_interview` / `score_answer` / `session_report_markdown`），
+调用次数上限也一样：**题数 + 1**。网页版多一个能力——`http://127.0.0.1:8000/?replay=1`
+可以直接回放历史会话，**不消耗任何调用**。
 
 **输入不用手打成 txt**，`prep` 会自己从 `my/raw/` 里取原件转文字：
 
@@ -147,8 +152,8 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
   - `trace.jsonl`：每次 LLM 调用与工具调用落一行，能复现「这道题为什么给这个分」
   - 预期代价：每题检索走本地 embedding / 关键词召回，**不额外增加 LLM 调用次数**
 - [ ] **P4 评测 + Web**
-  - golden set：用自有 30/50 题做评测集，检查打分与人工排序的一致性（`eval/`）
-  - FastAPI 单页：浏览器里答题，复用现有 `run_interview`，不另写一套逻辑
+  - [x] FastAPI 单页：浏览器里答题、看六维分、出报告，复用 `run_interview` 的同一套打分与落库逻辑；`?replay=1` 零调用回放历史会话
+  - [ ] golden set：用自有 30/50 题做评测集，检查打分与人工排序的一致性（`eval/`）
 
 收尾：
 
