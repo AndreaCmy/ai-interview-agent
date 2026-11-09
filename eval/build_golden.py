@@ -88,7 +88,7 @@ ANSWERS = {
         "这个底座我分四块答：编排与调度、流式与会话、检索与降噪、工具与权限。"
         "编排：客服与 OnCall 走 LangGraph workflow，4 个节点 2 条路由，user_input → model ⇄ tools。"
         "意图识别没有单独的分类器节点，判定发生在 model 节点里：system prompt 带场景知识和可路由目标，模型输出决定走哪条条件边；"
-        "因为路径固定（客服 5 步节点），工具调度是受限调度，不是让它自由挑工具。"
+        "因为路径固定（客服图 4 节点 2 路由），工具调度是受限调度，不是让它自由挑工具。"
         "编码辅助不走这张图，是 Claude Code / Codex 加 tmux 上自建 Harness，因为 coding agent 要真跑 shell 长会话、要权限和执行记录。"
         "流式与会话：SSE 走双通道，on_chat_model_stream 的 token 直接上屏，on_chain_stream 的节点事件落 Redis，展示与状态分开；"
         "会话不用 LangGraph checkpointer，自研 SessionService，整会话一个 Redis key、TTL 24 小时，消息靠重放、非消息状态靠快照。"
