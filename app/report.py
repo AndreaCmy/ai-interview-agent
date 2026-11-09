@@ -96,6 +96,9 @@ def session_report_markdown(
         lines.append(f"**题目**：{t.get('question','')}")
         lines.append("")
         lines.append(f"**你的回答**：{t.get('answer','')}")
+        if t.get("fact_mismatch"):
+            lines.append("")
+            lines.append("**事实不符**：这条回答与本人项目事实对不上（见改进项），总分已按规则封顶。")
         lines.append("")
         if t.get("covered") or t.get("missing"):
             ref = t.get("reference") or {}

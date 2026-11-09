@@ -27,9 +27,12 @@ class RealLLM:
             raise RuntimeError("缺少 DEEPSEEK_API_KEY：请复制 .env.example 为 .env 并填入")
         self.client = OpenAI(api_key=s["api_key"], base_url=s["base_url"])
         self.model = s["model"]
+        self.temperature = s.get("temperature") or None
 
     def chat(self, messages: List[dict], tools: Optional[List[dict]] = None) -> Any:
         kwargs: dict = {"model": self.model, "messages": messages}
+        if self.temperature is not None:
+            kwargs["temperature"] = float(self.temperature)
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"

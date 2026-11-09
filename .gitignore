@@ -35,3 +35,6 @@ demo/bank-sample.json
 
 # ============ 个人练习区：真实 JD / 简历 / 场次记录，永不入库 ============
 my/
+
+# 评测产物（结果可复现，不必入库；golden set 本身要入库）
+eval/last-*.json

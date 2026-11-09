@@ -108,3 +108,51 @@ class KBTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FactMismatchTest(unittest.TestCase):
+    """事实不符要在代码端封顶：模型把叙述写得再完整，也不能当高分。"""
+
+    def test_cap_applied_and_reported(self):
+        import json as _json
+        from types import SimpleNamespace
+        from app.kb import KnowledgeBase
+        from app.scoring import FACT_MISMATCH_CAP, score_answer
+
+        kb = KnowledgeBase()
+        ref = kb.retrieve("分布式状态机", "分布式状态机与履约编排")
+
+        class Fake:
+            def chat(self, messages, tools=None):
+                payload = {"correctness": 4, "depth": 4.5, "engineering": 4.5, "boundary": 4,
+                           "structure": 4.5, "expression": 4.5, "fact_mismatch": True,
+                           "evidence": ["回补三万多单"], "summary": "叙述完整",
+                           "strengths": [], "weaknesses": ["与本人项目事实不符"], "covered": [], "missing": []}
+                m = SimpleNamespace(content=_json.dumps(payload, ensure_ascii=False), tool_calls=[])
+                return SimpleNamespace(choices=[SimpleNamespace(message=m)])
+
+        out = score_answer(Fake(), "讲一次线上故障", "回补三万多单", reference=ref)
+        self.assertTrue(out["fact_mismatch"])
+        self.assertLessEqual(out["total"], FACT_MISMATCH_CAP)
+
+    def test_no_flag_keeps_score(self):
+        import json as _json
+        from types import SimpleNamespace
+        from app.kb import KnowledgeBase
+        from app.scoring import FACT_MISMATCH_CAP, score_answer
+
+        kb = KnowledgeBase()
+        ref = kb.retrieve("分布式状态机", "分布式状态机与履约编排")
+
+        class Fake:
+            def chat(self, messages, tools=None):
+                payload = {"correctness": 5, "depth": 5, "engineering": 5, "boundary": 5,
+                           "structure": 5, "expression": 5, "fact_mismatch": False,
+                           "evidence": ["x"], "summary": "好", "strengths": [], "weaknesses": [],
+                           "covered": [], "missing": []}
+                m = SimpleNamespace(content=_json.dumps(payload, ensure_ascii=False), tool_calls=[])
+                return SimpleNamespace(choices=[SimpleNamespace(message=m)])
+
+        out = score_answer(Fake(), "分布式状态机", "答得很好", reference=ref)
+        self.assertEqual(out["total"], 5.0)
+        self.assertGreater(out["total"], FACT_MISMATCH_CAP)

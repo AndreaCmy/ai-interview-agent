@@ -19,6 +19,9 @@ DIM_CN = {
     "structure": "结构",
     "expression": "表达",
 }
+# 事实不符时的总分封顶：事实上讲错的回答不能因为叙述完整而拿到及格线以上的分
+FACT_MISMATCH_CAP = 2.0
+
 WEIGHTS = {
     "correctness": 0.30,
     "depth": 0.20,
@@ -93,6 +96,11 @@ def score_answer(
     scores = {d: _clamp(data.get(d, 0)) for d in DIMENSIONS}
     total = round(sum(scores[d] * WEIGHTS[d] for d in DIMENSIONS), 2)
 
+    # 事实不符（回答与本人项目事实对不上）在代码端封顶：这类回答无论叙述多完整都不能当高分用。
+    fact_mismatch = bool(data.get("fact_mismatch", False))
+    if fact_mismatch and total > FACT_MISMATCH_CAP:
+        total = FACT_MISMATCH_CAP
+
     points = (reference or {}).get("points") or []
     covered = _norm_list(data.get("covered", []), points)
     missing = _norm_list(data.get("missing", []), points)
@@ -106,6 +114,7 @@ def score_answer(
         "summary": data.get("summary", ""),
         "strengths": data.get("strengths", []),
         "weaknesses": data.get("weaknesses", []),
+        "fact_mismatch": fact_mismatch,
         "covered": covered,
         "missing": missing,
         "reference": {

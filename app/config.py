@@ -21,4 +21,6 @@ def get_settings() -> Dict[str, str]:
         "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
         "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+        # 留空 = 不传，用服务端默认；评测与打分建议设 0 以降低波动
+        "temperature": os.getenv("LLM_TEMPERATURE", ""),
     }

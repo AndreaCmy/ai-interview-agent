@@ -155,7 +155,11 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
   - [ ] `trace.jsonl`：每次 LLM 调用与工具调用落一行，能复现「这道题为什么给这个分」
 - [ ] **P4 评测 + Web**
   - [x] FastAPI 单页：浏览器里答题、看六维分、出报告，复用 `run_interview` 的同一套打分与落库逻辑；`?replay=1` 零调用回放历史会话
-  - [ ] golden set：用自有 30/50 题做评测集，检查打分与人工排序的一致性（`eval/`）
+  - [x] golden set（首轮）：5 题 × 3 档 = 15 条，检查「同题内 good > mid > bad」是否成立
+    - 排序正确 **5/5**，平均分差 **2.62**（DeepSeek，温度 0）
+    - 检索净效应：差档平均 **2.16 → 1.74**，Q1 的 CAS 错误回答从 3.30 降到 2.00
+    - 过程中发现并修掉「打分器被伪具体性骗」：回答与项目事实不符时，代码端封顶总分 2.0
+    - 详见 `eval/README.md`；下一步是人工标定排序与扩样本
 
 收尾：
 

@@ -22,8 +22,13 @@ SCORING_SYSTEM = """你是严格的技术面试评分官。
 - 先用要点逐条判断覆盖情况，再据此定 correctness / depth / engineering 的分；
   漏掉要点不等于错，若候选人用别的机制讲清了同一件事，算命中。
 - 若候选人说法与要点相反（如要点是悲观锁、他说用了乐观锁），按正确性问题处理，必须写进 weaknesses。
+- 若回答里的具体事故、影响面、数字与参考要点不一致（例如要点是监控盲区，他讲成数据丢失并给出回补数量），
+  按事实不符处理：不因此给 engineering / depth 加分，在 weaknesses 写明「与本人项目事实不符，需核对」。
+  具体数字只有在与要点一致或明显来自同一事实时才计入工程落地。
+  判定为事实不符时按硬上限执行：correctness ≤ 2，engineering ≤ 3，并把 JSON 里的 fact_mismatch 置为 true
+  （代码端会据此把总分封顶在 2.0）。即使叙述具体、结构完整也不放宽。
 输出约束：只输出严格 JSON，不要任何解释文字：
-{"correctness":0-5,"depth":0-5,"engineering":0-5,"boundary":0-5,"structure":0-5,"expression":0-5,"evidence":["引用回答中的原文片段"],"summary":"一句话总评","strengths":["亮点"],"weaknesses":["改进点"],"covered":["命中的要点编号或短标签"],"missing":["漏掉的要点编号或短标签"]}
+{"correctness":0-5,"depth":0-5,"engineering":0-5,"boundary":0-5,"structure":0-5,"expression":0-5,"fact_mismatch":false,"evidence":["引用回答中的原文片段"],"summary":"一句话总评","strengths":["亮点"],"weaknesses":["改进点"],"covered":["命中的要点编号或短标签"],"missing":["漏掉的要点编号或短标签"]}
 """
 
 REPORT_SYSTEM = """你是面试复盘教练。
