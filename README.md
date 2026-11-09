@@ -152,7 +152,10 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
     - 召回纯本地计算（中文双字 + 英文词，IDF 加权），10 题自测召回 **10/10**
     - **零额外调用**：召回只是拼进本来就要发的打分 prompt
     - 召回为空 / 低于阈值时自动退化为原行为，知识库缺失不影响面试
-  - [ ] `trace.jsonl`：每次 LLM 调用与工具调用落一行，能复现「这道题为什么给这个分」
+  - [x] `trace.jsonl`：每次 LLM 调用、工具调用、召回、打分落一行，能复现「这道题为什么给这个分」
+    - 四类事件：`llm`（模型/温度/轮次/prompt 字符数/耗时/是否成功）、`tool`（工具名/参数/耗时/结果摘要）、`kb`（是否命中/命中哪题/召回分）、`score`（六维/重算总分/是否封顶/命中与漏掉）
+    - 默认写 `my/trace.jsonl`（不入库）；`--trace <路径>` 改位置，`--no-trace` 关掉
+    - 只落「角色 + 字符数 + 前 80 字」，不把简历原文整段写进日志
 - [ ] **P4 评测 + Web**
   - [x] FastAPI 单页：浏览器里答题、看六维分、出报告，复用 `run_interview` 的同一套打分与落库逻辑；`?replay=1` 零调用回放历史会话
   - [x] golden set（首轮）：5 题 × 3 档 = 15 条，检查「同题内 good > mid > bad」是否成立
@@ -163,5 +166,6 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
 
 收尾：
 
+- [x] 实践笔记 `docs/agent-core-notes.md`：13 条来自实际返工的 Agent 工程结论（分层/评测/检索/护栏）
 - [x] **P5 作品集包装**：架构图、运行回放页、26 秒终端实录 GIF、GitHub Pages 落地页
 - [ ] **P5 收尾**：简历话术（3 条 bullet + 1 段项目描述），最后写

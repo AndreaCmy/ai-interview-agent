@@ -20,7 +20,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.budget import BudgetedLLM  # noqa: E402
-from app.kb import DEFAULT_KB, KnowledgeBase  # noqa: E402
+from app.kb import DEFAULT_KB, KnowledgeBase
+from app.trace import configure as configure_trace, set_scene  # noqa: E402
 from app.llm import RealLLM  # noqa: E402
 from app.scoring import score_answer  # noqa: E402
 
@@ -72,6 +73,10 @@ def main() -> int:
         print("[错误] golden set 为空")
         return 1
 
+    trace_path = ROOT / "eval" / f"trace-{args.tag}.jsonl"
+    configure_trace(str(trace_path), enabled=True)
+    set_scene(f"eval:{args.tag}")
+
     llm = BudgetedLLM(RealLLM(), len(cases), label="LLM")
     kb = None if args.no_kb else KnowledgeBase(args.kb)
     if kb is not None:
@@ -80,6 +85,7 @@ def main() -> int:
         print("[知识库] 已关闭（对照基线）")
 
     for i, c in enumerate(cases, 1):
+        set_scene(f"eval:{args.tag}:{c['id']}")
         ref = None
         if kb is not None:
             ref = kb.retrieve(c["question"], c.get("topic", ""))

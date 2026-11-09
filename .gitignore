@@ -38,3 +38,6 @@ my/
 
 # 评测产物（结果可复现，不必入库；golden set 本身要入库）
 eval/last-*.json
+
+# 可观测 trace（含真实问答内容，不入库）
+eval/trace-*.jsonl

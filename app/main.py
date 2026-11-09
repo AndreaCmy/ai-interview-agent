@@ -24,6 +24,7 @@ from .budget import BudgetedLLM, BudgetExceeded
 from .session import SessionStore
 from .interview import run_interview, generate_report
 from .kb import DEFAULT_KB, KnowledgeBase
+from .trace import configure as configure_trace, set_scene
 
 SYSTEM = (
     "你是一位经验丰富的技术面试官，风格专业、克制。"
@@ -75,7 +76,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
     llm = _make_real()
     if not llm:
         return 2
-    res = _wrap_api(lambda: run_agent(llm, SYSTEM, args.message, tool_schemas(), TOOLS, max_iter=8, verbose=True))
+    configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
+    set_scene("chat")
+    budget = BudgetedLLM(llm, 8, label="LLM")
+    res = _wrap_api(lambda: run_agent(budget, SYSTEM, args.message, tool_schemas(), TOOLS, max_iter=8, verbose=True))
     if not res:
         return 1
     print("\n--- 最终回答 ---")
@@ -87,9 +91,12 @@ def cmd_prep(args: argparse.Namespace) -> int:
     llm = _make_real()
     if not llm:
         return 2
+    configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
+    set_scene("prep")
+    budget = BudgetedLLM(llm, 1, label="LLM")
     jd = _read_text(args.jd)
     resume = _read_text(args.resume)
-    bank = _wrap_api(lambda: generate_bank(llm, jd, resume, n=args.n, role=args.role))
+    bank = _wrap_api(lambda: generate_bank(budget, jd, resume, n=args.n, role=args.role))
     if bank is None:
         return 1
     md = bank_to_markdown(bank)
@@ -113,11 +120,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
     llm = _make_real()
     if not llm:
         return 2
+    configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
+    set_scene(f"ask:{args.topic or args.question[:20]}")
     kb = _make_kb(getattr(args, "kb", None))
     ref = kb.retrieve(args.question, args.topic or "")
     if ref:
         print(f"[召回] {ref['qid']} · {ref['topic']}（分 {ref['score']}）")
-    item = _wrap_api(lambda: score_answer(llm, args.question, args.answer, role=args.role, reference=ref))
+    budget = BudgetedLLM(llm, 1, label="LLM")
+    item = _wrap_api(lambda: score_answer(budget, args.question, args.answer, role=args.role, reference=ref))
     if item is None:
         return 1
     md = score_to_markdown(item)
@@ -132,6 +142,8 @@ def cmd_interview(args: argparse.Namespace) -> int:
     llm = _make_real()
     if not llm:
         return 2
+    configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
+    set_scene(f"interview:{Path(args.bank).stem}")
     bank = json.loads(Path(args.bank).read_text(encoding="utf-8"))
     qs = bank.get("questions", [])
     if not qs:
@@ -188,6 +200,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--role", default="AI Agent / 后端", help="岗位方向")
     a.add_argument("--topic", default="", help="题目主题（帮助检索命中对应要点）")
     a.add_argument("--kb", default=None, help="对照要点库路径（默认 my/best-answers.md）")
+    a.add_argument("--trace", default=None, help="trace JSONL 路径（默认 my/trace.jsonl）")
+    a.add_argument("--no-trace", action="store_true", help="本次不写 trace")
     a.add_argument("-o", "--out", help="评分卡 Markdown 输出路径")
     a.set_defaults(func=cmd_ask)
 
@@ -199,6 +213,8 @@ def build_parser() -> argparse.ArgumentParser:
     iv.add_argument("--max-followups", type=int, default=2, help="最多追问次数")
     iv.add_argument("--db", default="interview.db", help="SQLite 数据库路径")
     iv.add_argument("--kb", default=None, help="对照要点库路径（默认 my/best-answers.md）")
+    iv.add_argument("--trace", default=None, help="trace JSONL 路径（默认 my/trace.jsonl）")
+    iv.add_argument("--no-trace", action="store_true", help="本次不写 trace")
     iv.add_argument("-o", "--out", help="报告 Markdown 输出路径")
     iv.set_defaults(func=cmd_interview)
 

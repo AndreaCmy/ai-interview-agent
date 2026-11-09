@@ -17,6 +17,8 @@ import pathlib
 import re
 from typing import Any, Dict, List, Optional
 
+from .trace import get_tracer
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_KB = ROOT / "my" / "best-answers.md"
 
@@ -136,6 +138,14 @@ class KnowledgeBase:
         self._idf = {t: math.log((n + 1) / (c + 0.5)) for t, c in df.items()}
 
     def retrieve(self, question: str, topic: str = "", min_score: float = 3.0) -> Optional[Dict[str, Any]]:
+        hit = self._retrieve(question, topic, min_score)
+        try:  # 观测不能影响主流程，异常静默吞掉
+            get_tracer().kb_hit(question=question, hit=hit, min_score=min_score)
+        except Exception:
+            pass
+        return hit
+
+    def _retrieve(self, question: str, topic: str = "", min_score: float = 3.0) -> Optional[Dict[str, Any]]:
         if not self.sections:
             return None
         q_tok = _tokens(f"{topic} {question}")

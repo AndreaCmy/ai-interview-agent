@@ -98,14 +98,16 @@ def score_answer(
 
     # 事实不符（回答与本人项目事实对不上）在代码端封顶：这类回答无论叙述多完整都不能当高分用。
     fact_mismatch = bool(data.get("fact_mismatch", False))
+    cap_applied = False
     if fact_mismatch and total > FACT_MISMATCH_CAP:
         total = FACT_MISMATCH_CAP
+        cap_applied = True
 
     points = (reference or {}).get("points") or []
     covered = _norm_list(data.get("covered", []), points)
     missing = _norm_list(data.get("missing", []), points)
 
-    return {
+    result = {
         "question": question,
         "answer": answer,
         "scores": scores,
@@ -125,3 +127,11 @@ def score_answer(
             "numbers": (reference or {}).get("numbers", ""),
         } if reference else None,
     }
+
+    try:  # 落一条 score 事件：把「为什么给这个分」所需的三段都留痕
+        from .trace import get_tracer
+
+        get_tracer().score(result=result, reference=reference, cap_applied=cap_applied)
+    except Exception:
+        pass
+    return result
