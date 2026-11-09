@@ -85,16 +85,19 @@ ANSWERS = {
     ),
     # ---------------- Q8 Agent 底座 ----------------
     ("Q8", "good"): (
-        "底座我分两条技术路线，这是刻意的分治：客服和 OnCall 是 LangGraph workflow，路径稳定可预期；"
-        "编码辅助是另一条，在 Claude Code / Codex 加 tmux 上自建 Harness，因为 coding agent 要真跑 shell 长会话、要权限和执行记录，LangGraph 不解决终端执行。"
-        "客服的图是 4 个节点 2 条路由，user_input 进 model，model 和 tools 之间是一个循环。"
-        "SSE 走双通道：浏览器 EventSource 进 Route 到 Runner 再到 Agent，on_chat_model_stream 的 token 直接上屏，on_chain_stream 的节点状态落 Redis，展示和状态分开。"
-        "会话不用 checkpointer，自研 SessionService，整会话一个 Redis key，TTL 24 小时，消息靠重放、非消息状态靠快照。"
-        "工具三层：External 是裸 HTTP，Core 带业务逻辑并按角色剥字段，Wrapper 的 schema 只放模型该生成的参数，模型伪造不了别人的 user_id。"
-        "安全分两层：不该说的靠 prompt 软约束，不该看见的靠代码里的 ROLE_HIDDEN_KEYS 硬剥字段。"
-        "RAG 召回为空或低置信度就直接拒答转人工，不硬编，prompt 强制带引用来源。"
-        "复盘有两种跑法：golden case 离线回放做回归基线，线上抽样做真实流量打分，结论回流更新 skill 和知识库，并做 A/B 版本对比。"
-        "一共落地 3 类场景、2 条技术路线。"
+        "这个底座我分四块答：编排与调度、流式与会话、检索与降噪、工具与权限。"
+        "编排：客服与 OnCall 走 LangGraph workflow，4 个节点 2 条路由，user_input → model ⇄ tools。"
+        "意图识别没有单独的分类器节点，判定发生在 model 节点里：system prompt 带场景知识和可路由目标，模型输出决定走哪条条件边；"
+        "因为路径固定（客服 5 步节点），工具调度是受限调度，不是让它自由挑工具。"
+        "编码辅助不走这张图，是 Claude Code / Codex 加 tmux 上自建 Harness，因为 coding agent 要真跑 shell 长会话、要权限和执行记录。"
+        "流式与会话：SSE 走双通道，on_chat_model_stream 的 token 直接上屏，on_chain_stream 的节点事件落 Redis，展示与状态分开；"
+        "会话不用 LangGraph checkpointer，自研 SessionService，整会话一个 Redis key、TTL 24 小时，消息靠重放、非消息状态靠快照。"
+        "检索降噪：我们没做检索侧的重排和去重，做的是三件事——按场景切知识库，客服和 OnCall 的索引不混；"
+        "召回为空或低置信度就拒答转人工，不硬编；回答强制带引用来源便于核对。取舍是先保证不瞎编再谈召回质量，重排是已知缺口。"
+        "工具治理：三层工具，External 是裸 HTTP，Core 带业务逻辑并按角色剥字段，Wrapper 的 schema 只放模型该生成的参数；"
+        "权限不靠 prompt，代码里 ROLE_HIDDEN_KEYS 硬剥字段，模型伪造不了别人的 user_id。执行侧的超时、重试、幂等没成体系，我认是缺口。"
+        "复盘：golden case 离线回放做回归基线，线上抽样做真实流量打分，两路 A/B 对比，结论回流更新 skill 与知识库。"
+        "落地 3 类场景、2 条技术路线。"
     ),
     ("Q8", "mid"): (
         "我们用 LangGraph 做编排，把客服、OnCall、代码辅助三类场景都接进来了。"
