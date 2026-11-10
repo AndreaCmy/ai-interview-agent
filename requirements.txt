@@ -1,7 +1,17 @@
-# 核心依赖（v0.1 只需这两个即可跑真实 LLM；stub 模式纯标准库）
-openai>=1.30.0
-python-dotenv>=1.0.0
-pypdf>=4.0        # 简历 PDF 抽文字（tools/to_text.py）
+# 运行依赖（Python 3.10+）
+# 不装也能看骨架：python -m app demo（StubLLM，纯标准库，0 次调用）
+# 下列是真实打分 / 网页 / PDF 抽文字所需的完整集
+
+# --- LLM 与配置 ---
+openai>=1.30.0          # DeepSeek 走 OpenAI 兼容接口
+python-dotenv>=1.0.0    # 读 .env
+
+# --- 题库 / 网页 ---
 fastapi>=0.110
 uvicorn>=0.29
-pydantic>=2.0      # 工具参数执行前校验（create_model）
+pydantic>=2.0           # 工具参数执行前按 JSON Schema 校验（create_model）
+
+# --- 素材转文字 ---
+pypdf>=4.0              # 简历 / JD 的 PDF 抽文字（tools/to_text.py）
+
+# 测试不依赖 pytest：python -m unittest discover -s tests

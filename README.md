@@ -58,11 +58,39 @@
 |---|---|
 | `my/report-<时间>.md` | 这场复盘：总览 / 复习优先级 / 逐题改进话术 |
 | `my/interview.db` | 每场每题的原始记录，`./practice.sh stat` 看累计 |
-| `my/bank.md` | 题库，Markor 里读，面试前扫一眼 |
+| `my/bank/<slug>.md` | 这套 JD 的题库，Markor 里读，面试前扫一眼 |
 
 只想练一题：`./practice.sh ask "讲讲 ReAct 循环" "你的回答"`。
 
 `my/` 已写进 `.gitignore`，真实简历不会被提交。
+
+## 三分钟跑起来（从零到一题）
+
+```bash
+# 1) 环境：Python 3.10+
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
+# 2) 密钥：复制后填入 DEEPSEEK_API_KEY（没有 key 也能先 `python -m app demo` 看骨架）
+cp .env.example .env
+
+# 3) 一套虚构演示数据（不碰 my/，不含任何真实简历；想用自己的就跳过这步）
+./demo/make-demo-data.sh /tmp/ai-interview-demo
+
+# 4) 生成题库 —— 1 次 LLM 调用
+AI_DATA_DIR=/tmp/ai-interview-demo ./practice.sh prep 10 --jd medical-it
+
+# 5) 开始面试（每题 1 次打分 + 结尾 1 次报告）
+AI_DATA_DIR=/tmp/ai-interview-demo ./practice.sh start --jd medical-it
+
+# 或者网页版，浏览器打开 http://127.0.0.1:8000
+AI_DATA_DIR=/tmp/ai-interview-demo ./practice.sh web 8000
+```
+
+产物都落在 `AI_DATA_DIR`：题库在 `bank/medical-it.md`（人读）+ `.json`（喂给面试），报告在 `report-*.md`。
+不设 `AI_DATA_DIR` 就用仓库里的 `my/`（个人练习区，已 gitignore，真实简历不会进仓库）。
+
+演示数据只用了两份虚构素材：`demo/jd-sample.txt`（虚构医疗信息化 JD）与 `demo/resume-sample.txt`（虚构简历）。
 
 ## 快速开始
 

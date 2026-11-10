@@ -32,8 +32,35 @@ from .session import SessionStore
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
-BANK_DEFAULT = ROOT / "my" / "bank.json"
-DB_DEFAULT = pathlib.Path(os.getenv("WEB_DB", str(ROOT / "my" / "web-interview.db")))
+DATA_DIR = pathlib.Path(os.getenv("AI_DATA_DIR") or (ROOT / "my"))
+
+
+def _env_int(name: str, default: int) -> int:
+    """读整数环境变量；空值/非法值回退默认（.env 里留空不该让服务崩）。"""
+    raw = (os.getenv(name) or "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def _active_bank() -> pathlib.Path:
+    """题库默认路径：环境变量 > my/jd/.active 指向的 <slug>.json > 老的 my/bank.json。"""
+    env = os.getenv("WEB_BANK")
+    if env:
+        return pathlib.Path(env)
+    active = DATA_DIR / "jd" / ".active"
+    if active.exists():
+        slug = active.read_text(encoding="utf-8").strip().splitlines()
+        if slug:
+            cand = DATA_DIR / "bank" / f"{slug[0].strip()}.json"
+            if cand.exists():
+                return cand
+    return DATA_DIR / "bank.json"
+
+
+BANK_DEFAULT = _active_bank()
+DB_DEFAULT = pathlib.Path(os.getenv("WEB_DB", str(DATA_DIR / "web-interview.db")))
 DEFAULT_ROLE = "AI Agent / 后端"
 KB_DEFAULT = pathlib.Path(os.getenv("WEB_KB", str(DEFAULT_KB)))
 
@@ -144,7 +171,7 @@ def start_session(req: StartReq) -> Dict[str, Any]:
          "category": q.get("category", "技术"), "question": q.get("question", "")}
         for i, q in enumerate(questions, 1)
     ]
-    max_calls = int(os.getenv("WEB_MAX_CALLS", str(len(questions) + 1)))
+    max_calls = _env_int("WEB_MAX_CALLS", len(questions) + 1)
     state.llm = _make_llm(max_calls)
     state.kb = KnowledgeBase(KB_DEFAULT)
     store = SessionStore(str(DB_DEFAULT))
@@ -210,7 +237,7 @@ def make_report() -> Dict[str, Any]:
 
         data = generate_report(state.llm, state.bank or {}, state.turns, state.role) if state.llm else None
         md = session_report_markdown(state.bank or {}, state.turns, data)
-        out = ROOT / "my" / f"report-web-{time.strftime('%Y%m%d-%H%M%S')}.md"
+        out = DATA_DIR / f"report-web-{time.strftime('%Y%m%d-%H%M%S')}.md"
         out.write_text(md, encoding="utf-8")
         state.report_md, state.report_path = md, str(out)
         return {"ok": True, "cached": False, "report_md": md, "report_path": str(out),
@@ -250,4 +277,4 @@ def main(host: str = "127.0.0.1", port: int = 8000) -> None:
 
 
 if __name__ == "__main__":
-    main(port=int(os.getenv("PORT", "8000")))
+    main(port=_env_int("PORT", 8000))

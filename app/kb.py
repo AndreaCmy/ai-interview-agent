@@ -21,7 +21,9 @@ from typing import Any, Dict, List, Optional
 from .trace import get_tracer
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEFAULT_KB = ROOT / "my" / "best-answers.md"
+# 数据目录：默认 <repo>/my；设 AI_DATA_DIR 可指向仓库外的个人目录（公开版/多机共用）
+DATA_DIR = pathlib.Path(os.getenv("AI_DATA_DIR") or (ROOT / "my"))
+DEFAULT_KB = DATA_DIR / "best-answers.md"
 
 # 召回阈值：低于这个分数的命中视为「没召回」，不注入对照要点。
 # 为什么是 35.0 而不是早期写的 3.0：分数刻度是 IDF 加权和（实测 212 次召回的区间

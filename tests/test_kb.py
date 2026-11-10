@@ -58,8 +58,21 @@ class KBTest(unittest.TestCase):
             self.assertTrue(sec["numbers"], sec["qid"])
             self.assertTrue(sec["boundary"], sec["qid"])
 
+    def _bank_path(self):
+        """题库路径：优先 my/bank/<active>.json，退回老的 my/bank.json；都没有就跳过。"""
+        act = os.path.join(ROOT, "my", "jd", ".active")
+        if os.path.exists(act):
+            slug = open(act, encoding="utf-8").read().strip().splitlines()[0].strip()
+            p = os.path.join(ROOT, "my", "bank", slug + ".json")
+            if os.path.exists(p):
+                return p
+        return os.path.join(ROOT, "my", "bank.json")
+
     def test_each_bank_question_hits_its_own_section(self):
-        bank = json.loads(open(os.path.join(ROOT, "my", "bank.json"), encoding="utf-8").read())
+        path = self._bank_path()
+        if not os.path.exists(path):
+            self.skipTest("没有本地题库（my/ 未初始化）")
+        bank = json.loads(open(path, encoding="utf-8").read())
         got = []
         for q in bank["questions"]:
             sec = self.kb.retrieve(q["question"], q.get("topic", ""))
