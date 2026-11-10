@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,12 +45,31 @@ class Tracer:
         self.scene = ""
         # seq：本进程内的自增序号，emit 一次 +1，从 1 开始。
         #   作用是把同一进程里的事件排出确定的先后顺序（同 ts 秒级、靠它区分）。
-        #   注意：跨进程不连续——每次运行都从 1 重来，要跨运行串联得看 ts（或以后加 request_id）。
+        #   注意：跨进程不连续——每次运行都从 1 重来；要跨运行/跨文件串联，看下面的 request_id。
         self.seq = 0
+        # request_id：一次「请求」的标识，由 request() 上下文管理器包出来（如 ask-3f9a2b1c）。
+        #   作用：把同一次问答里的 kb / llm / tool / score 四条事件串成一条父链——
+        #   面试一场 10 题、每条 4 个事件，没有它就只能靠 ts 猜先后。
+        #   用法：入口处 `with get_tracer().request("ask"):`，事件会在窗口内自动带上该 id。
+        self.request_id = ""
 
     # ---- 上下文 ------------------------------------------------------
     def set_scene(self, scene: str) -> None:
         self.scene = scene
+
+    @contextmanager
+    def request(self, label: str = "req"):
+        """一次请求的事件窗口：进入时生成 request_id，退出时恢复上一个（支持嵌套）。
+
+        目的是让「一道题的一次打分」在日志里成为一条可 grep 的父链：
+        request_id + kind 就能把召回、模型、工具、打分四个事件按时间取出来。
+        """
+        prev = self.request_id
+        self.request_id = f"{label}-{uuid.uuid4().hex[:8]}"
+        try:
+            yield self.request_id
+        finally:
+            self.request_id = prev
 
     # ---- 写入 --------------------------------------------------------
     def emit(self, kind: str, **fields: Any) -> None:
@@ -60,6 +81,7 @@ class Tracer:
             "seq": self.seq,
             "kind": kind,
             "scene": self.scene,
+            "request_id": self.request_id,
         }
         rec.update(fields)
         try:
@@ -123,7 +145,14 @@ class Tracer:
             points=len(((hit or {}).get("points") or [])),
         )
 
-    def score(self, *, result: Dict[str, Any], reference: Optional[Dict[str, Any]], cap_applied: bool) -> None:
+    def score(
+        self,
+        *,
+        result: Dict[str, Any],
+        reference: Optional[Dict[str, Any]],
+        cap_applied: bool,
+        cap_reason: str = "",
+    ) -> None:
         """打分收口事件：记录「代码最终认下的分数」，不是模型自己说的分数。
 
         为什么 llm / kb 不够、还要单独一条 score：
@@ -146,6 +175,7 @@ class Tracer:
             total=result.get("total"),
             fact_mismatch=result.get("fact_mismatch"),
             cap_applied=cap_applied,
+            cap_reason=cap_reason,
             covered=result.get("covered"),
             missing=result.get("missing"),
         )

@@ -24,11 +24,22 @@ class SessionStore:
         self.conn.execute(
             """CREATE TABLE IF NOT EXISTS turns(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER, idx INTEGER, topic TEXT, question TEXT, answer TEXT,
+                session_id INTEGER, idx INTEGER, qid TEXT, topic TEXT, question TEXT, answer TEXT,
                 scores_json TEXT, total REAL, summary TEXT,
                 evidence_json TEXT, strengths_json TEXT, weaknesses_json TEXT)"""
         )
+        self._migrate_add_qid()
         self.conn.commit()
+
+    def _migrate_add_qid(self) -> None:
+        """老库（turns 没有 qid 列）自动补一列，避免已录的会话打不开。
+
+        只 ADD COLUMN、不重建表：SQLite 的 ADD COLUMN 是 O(1) 元数据操作，
+        历史行的 qid 为 NULL，读的时候按空串处理，不影响回放。
+        """
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(turns)").fetchall()]
+        if "qid" not in cols:
+            self.conn.execute("ALTER TABLE turns ADD COLUMN qid TEXT")
 
     def create_session(self, role: str, bank: Dict[str, Any]) -> int:
         cur = self.conn.execute(
@@ -40,12 +51,13 @@ class SessionStore:
 
     def add_turn(self, session_id: int, idx: int, item: Dict[str, Any]) -> None:
         self.conn.execute(
-            """INSERT INTO turns(session_id, idx, topic, question, answer, scores_json,
+            """INSERT INTO turns(session_id, idx, qid, topic, question, answer, scores_json,
                 total, summary, evidence_json, strengths_json, weaknesses_json)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 session_id,
                 idx,
+                item.get("qid") or item.get("id", ""),  # 兼容只传 id 的旧调用
                 item.get("topic", ""),
                 item.get("question", ""),
                 item.get("answer", ""),
@@ -66,7 +78,7 @@ class SessionStore:
     def turns(self, session_id: int) -> List[Dict[str, Any]]:
         rows = self.conn.execute(
             """SELECT idx, topic, question, answer, scores_json, total, summary,
-                      evidence_json, strengths_json, weaknesses_json
+                      evidence_json, strengths_json, weaknesses_json, qid
                FROM turns WHERE session_id=? ORDER BY idx""",
             (session_id,),
         ).fetchall()
@@ -83,6 +95,7 @@ class SessionStore:
                 "evidence": json.loads(r[7] or "[]"),
                 "strengths": json.loads(r[8] or "[]"),
                 "weaknesses": json.loads(r[9] or "[]"),
+                "qid": r[10] or "",
             })
         return out
 

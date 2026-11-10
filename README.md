@@ -152,8 +152,10 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
     - 召回纯本地计算（中文双字 + 英文词，IDF 加权），10 题自测召回 **10/10**
     - **零额外调用**：召回只是拼进本来就要发的打分 prompt
     - 召回为空 / 低于阈值时自动退化为原行为，知识库缺失不影响面试
+  - [x] **工程加固**：`stop_reason` 三条出口（answered / max_iter / repeated_tool_call）、同一工具同参重复调用强制停、`cap_reason` 记录封顶原因、`request_id` 父链把一次问答的四类事件串起来、工具参数 pydantic 执行前校验、`turns` 表补 `qid`（老库自动 ALTER）
   - [x] `trace.jsonl`：每次 LLM 调用、工具调用、召回、打分落一行，能复现「这道题为什么给这个分」
-    - 四类事件：`llm`（模型/温度/轮次/prompt 字符数/耗时/是否成功）、`tool`（工具名/参数/耗时/结果摘要）、`kb`（是否命中/命中哪题/召回分）、`score`（六维/重算总分/是否封顶/命中与漏掉）
+    - 四类事件：`llm`（模型/温度/轮次/prompt 字符数/耗时/是否成功）、`tool`（工具名/参数/耗时/结果摘要）、`kb`（是否命中/命中哪题/召回分）、`score`（六维/重算总分/是否封顶/`cap_reason`/命中与漏掉）
+    - 每条事件带 `request_id`：`grep ask-c46622ae my/trace.jsonl` 就能取出一次问答的全部事件
     - 默认写 `my/trace.jsonl`（不入库）；`--trace <路径>` 改位置，`--no-trace` 关掉
     - 只落「角色 + 字符数 + 前 80 字」，不把简历原文整段写进日志
 - [ ] **P4 评测 + Web**

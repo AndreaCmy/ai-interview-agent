@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.budget import BudgetedLLM  # noqa: E402
 from app.kb import DEFAULT_KB, KnowledgeBase
-from app.trace import configure as configure_trace, set_scene  # noqa: E402
+from app.trace import configure as configure_trace, get_tracer, set_scene  # noqa: E402
 from app.llm import RealLLM  # noqa: E402
 from app.scoring import score_answer  # noqa: E402
 
@@ -86,10 +86,12 @@ def main() -> int:
 
     for i, c in enumerate(cases, 1):
         set_scene(f"eval:{args.tag}:{c['id']}")
-        ref = None
-        if kb is not None:
-            ref = kb.retrieve(c["question"], c.get("topic", ""))
-        item = score_answer(llm, c["question"], c["answer"], role="AI Agent / 后端", reference=ref)
+        # 每个 case 一个 request 窗口：它的 kb / llm / score 事件共用一个 request_id
+        with get_tracer().request(label=c["id"]):
+            ref = None
+            if kb is not None:
+                ref = kb.retrieve(c["question"], c.get("topic", ""))
+            item = score_answer(llm, c["question"], c["answer"], role="AI Agent / 后端", reference=ref)
         c["total"] = item["total"]
         c["covered"] = len(item["covered"])
         c["missing"] = len(item["missing"])

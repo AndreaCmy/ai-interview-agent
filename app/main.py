@@ -24,7 +24,7 @@ from .budget import BudgetedLLM, BudgetExceeded
 from .session import SessionStore
 from .interview import run_interview, generate_report
 from .kb import DEFAULT_KB, KnowledgeBase
-from .trace import configure as configure_trace, set_scene
+from .trace import configure as configure_trace, get_tracer, set_scene
 
 SYSTEM = (
     "你是一位经验丰富的技术面试官，风格专业、克制。"
@@ -79,11 +79,13 @@ def cmd_chat(args: argparse.Namespace) -> int:
     configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
     set_scene("chat")
     budget = BudgetedLLM(llm, 8, label="LLM")
-    res = _wrap_api(lambda: run_agent(budget, SYSTEM, args.message, tool_schemas(), TOOLS, max_iter=8, verbose=True))
+    with get_tracer().request(label="chat"):
+        res = _wrap_api(lambda: run_agent(budget, SYSTEM, args.message, tool_schemas(), TOOLS, max_iter=8, verbose=True))
     if not res:
         return 1
     print("\n--- 最终回答 ---")
     print(res["final"])
+    print(f"[停止原因] {res.get('stop_reason', 'unknown')}")
     return 0
 
 
@@ -96,7 +98,8 @@ def cmd_prep(args: argparse.Namespace) -> int:
     budget = BudgetedLLM(llm, 1, label="LLM")
     jd = _read_text(args.jd)
     resume = _read_text(args.resume)
-    bank = _wrap_api(lambda: generate_bank(budget, jd, resume, n=args.n, role=args.role))
+    with get_tracer().request(label="prep"):
+        bank = _wrap_api(lambda: generate_bank(budget, jd, resume, n=args.n, role=args.role))
     if bank is None:
         return 1
     md = bank_to_markdown(bank)
@@ -123,11 +126,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
     configure_trace(getattr(args, "trace", None), enabled=not getattr(args, "no_trace", False))
     set_scene(f"ask:{args.topic or args.question[:20]}")
     kb = _make_kb(getattr(args, "kb", None))
-    ref = kb.retrieve(args.question, args.topic or "")
-    if ref:
-        print(f"[召回] {ref['qid']} · {ref['topic']}（分 {ref['score']}）")
     budget = BudgetedLLM(llm, 1, label="LLM")
-    item = _wrap_api(lambda: score_answer(budget, args.question, args.answer, role=args.role, reference=ref))
+    with get_tracer().request(label="ask"):
+        ref = kb.retrieve(args.question, args.topic or "")
+        if ref:
+            print(f"[召回] {ref['qid']} · {ref['topic']}（分 {ref['score']}）")
+        item = _wrap_api(lambda: score_answer(budget, args.question, args.answer, role=args.role, reference=ref))
     if item is None:
         return 1
     md = score_to_markdown(item)

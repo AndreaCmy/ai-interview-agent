@@ -99,7 +99,11 @@ def score_answer(
     # 事实不符（回答与本人项目事实对不上）在代码端封顶：这类回答无论叙述多完整都不能当高分用。
     fact_mismatch = bool(data.get("fact_mismatch", False))
     cap_applied = False
+    # cap_reason 用字符串而不是 bool：封顶是个决策，要能回答「为什么这题只有 2.0」。
+    # 目前只有一种原因，留成字符串是为了以后加「回答为空」「答非所问」等也能区分。
+    cap_reason = ""
     if fact_mismatch and total > FACT_MISMATCH_CAP:
+        cap_reason = f"fact_mismatch:{total}->{FACT_MISMATCH_CAP}"
         total = FACT_MISMATCH_CAP
         cap_applied = True
 
@@ -117,6 +121,8 @@ def score_answer(
         "strengths": data.get("strengths", []),
         "weaknesses": data.get("weaknesses", []),
         "fact_mismatch": fact_mismatch,
+        "cap_applied": cap_applied,
+        "cap_reason": cap_reason,
         "covered": covered,
         "missing": missing,
         "reference": {
@@ -131,7 +137,7 @@ def score_answer(
     try:  # 落一条 score 事件：把「为什么给这个分」所需的三段都留痕
         from .trace import get_tracer
 
-        get_tracer().score(result=result, reference=reference, cap_applied=cap_applied)
+        get_tracer().score(result=result, reference=reference, cap_applied=cap_applied, cap_reason=cap_reason)
     except Exception:
         pass
     return result

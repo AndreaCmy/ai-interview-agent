@@ -25,6 +25,7 @@ from .kb import DEFAULT_KB, KnowledgeBase
 from .llm import RealLLM
 from .report import bank_to_markdown, session_report_markdown
 from .scoring import DIM_CN, DIMENSIONS, WEIGHTS, score_answer
+from .trace import get_tracer
 from .session import SessionStore
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -165,12 +166,15 @@ def answer(req: AnswerReq) -> Dict[str, Any]:
             ref = state.kb.retrieve(q["question"], q["topic"])
         except Exception:
             ref = None
-    try:
-        item = score_answer(state.llm, q["question"], text, role=state.role, reference=ref)
-    except BudgetExceeded as e:
-        raise HTTPException(429, f"预算用尽：{e}")
+
+    with get_tracer().request(label=f"web:{q['id']}"):
+        try:
+            item = score_answer(state.llm, q["question"], text, role=state.role, reference=ref)
+        except BudgetExceeded as e:
+            raise HTTPException(429, f"预算用尽：{e}")
 
     item["id"] = q["id"]
+    item["qid"] = q["id"]
     item["topic"] = q["topic"]
     item["category"] = q["category"]
     state.turns = [t for t in state.turns if t.get("id") != q["id"]]

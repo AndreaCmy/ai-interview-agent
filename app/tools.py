@@ -14,8 +14,9 @@ int / 枚举 / 可选，参数一多必然调错。现在改成从类型注解�
 from __future__ import annotations
 
 import inspect
+import json
 import types
-from typing import Any, Callable, Dict, List, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
 
 TOOLS: Dict[str, Callable] = {}
 
@@ -143,6 +144,79 @@ def tool(fn: Callable) -> Callable:
 def tool_schemas() -> List[dict]:
     """把注册的工具转成 OpenAI function-calling schema。"""
     return [schema_for(fn, name) for name, fn in TOOLS.items()]
+
+
+# ---------------------------------------------------------------- 执行前校验
+_PY_TYPES = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list, "object": dict}
+_MODEL_CACHE: Dict[str, Any] = {}
+
+
+def _py_type(prop: Dict[str, Any]):
+    """把 schema 里的 JSON 类型还原成 Python 类型，供 pydantic 建模型。"""
+    if "enum" in prop:
+        # 枚举用 Literal 表达，pydantic 会直接拒掉不在枚举里的值
+        return Literal[tuple(prop["enum"])]  # type: ignore[valid-type]
+    return _PY_TYPES.get(prop.get("type", "string"), str)
+
+
+def _args_model(name: str, schema: dict):
+    """按 schema 动态建一个 pydantic 模型，按工具名缓存，避免每次调用都重建。"""
+    if name in _MODEL_CACHE:
+        return _MODEL_CACHE[name]
+    from pydantic import ConfigDict, create_model
+
+    fn = schema["function"]
+    params = fn.get("parameters", {}) or {}
+    props: Dict[str, Any] = params.get("properties", {}) or {}
+    required = set(params.get("required", []) or [])
+
+    fields: Dict[str, Any] = {}
+    for pname, prop in props.items():
+        py_t = _py_type(prop)
+        if pname in required:
+            fields[pname] = (py_t, ...)
+        else:
+            # 不必填的参数给 None 默认值，模型少给字段也能过
+            fields[pname] = (Optional[py_t], None)
+    # extra="forbid": 模型多塞一个 schema 里没有的参数也算不合法——
+    # 否则拼错的字段会被静默丢掉，函数用自己的默认值跑，错得无声无息
+    model = create_model(f"{name}_args", __config__=ConfigDict(extra="forbid"), **fields)  # type: ignore[call-overload]
+    _MODEL_CACHE[name] = model
+    return model
+
+
+def validate_args(schemas: List[dict], name: str, raw: str) -> Dict[str, Any]:
+    """执行前校验工具参数：模型给的 JSON → 校验/转型/补默认 → 字典。
+
+    这就是「schema 管说明书，校验管守门」的那道门：
+    schema 让模型有意愿写对，这里保证写错了进不来（比如 top_k 传 -1、枚举传不存在的值）。
+    校验失败抛 ValueError，由 agent 循环转成 `error: ...` 回喂给模型，让它自己改。
+    没装 pydantic 时退化成「只解析 JSON」，不影响主流程。
+    """
+    schema = next((s for s in schemas if s.get("function", {}).get("name") == name), None)
+    if schema is None:
+        raise ValueError(f"unknown tool: {name}")
+    try:
+        data = json.loads(raw or "{}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"arguments 不是合法 JSON: {e}") from None
+    if not isinstance(data, dict):
+        raise ValueError("arguments 必须是 JSON 对象")
+
+    try:
+        model = _args_model(name, schema)
+    except Exception:
+        return data  # 没装 pydantic：放行，由函数自身报错
+    from pydantic import ValidationError
+
+    try:
+        # 去掉值为 None 的字段：否则会把 None 传给函数，覆盖掉函数自己的默认值
+        return {k: v for k, v in model.model_validate(data).model_dump().items() if v is not None}
+    except ValidationError as e:
+        # 只报第一条错误，够模型看懂；整段嵌套报错会把它绕晕
+        first = e.errors()[0]
+        loc = ".".join(str(x) for x in first.get("loc", ())) or "参数"
+        raise ValueError(f"参数不合法 {loc}: {first.get('msg', '')}") from None
 
 
 @tool

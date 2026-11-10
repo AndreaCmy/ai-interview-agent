@@ -27,21 +27,25 @@
 * 每轮先追加 assistant 消息（含 `tool_calls` 原文），再判断：**没有 tool\_calls 就返回 final**
 * 有 tool\_calls 则逐个执行，结果以 `role=tool` 回喂；工具抛异常时转成 `error: ...` 回喂，不中断循环
 
-* 到 `max_iter` 返回 `iterations=max_iter, final=None`
+* 到 `max_iter` 返回 `iterations=max_iter, final=None, stop_reason=max_iter`
+
+* 返回值固定带 `stop_reason`：`answered / max_iter / repeated_tool_call`；预算超限不吞掉，直接抛给调用方
+
+* 同一工具 + 同一组参数第二次出现就不执行，塞一条 `error: 重复调用…` 让模型换路；累计 2 次直接停（`max_repeats=2`）
 
 * **源码**　[app/agent.py:15-83](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#L15-L83)（`run_agent` 主循环）、[tests/test\_offline.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_offline.py)（循环与工具分发测试）
 
-**R 结果**　stub 演示 3 轮内收敛；真实单题 2 次调用完成；离线测试 20 条覆盖循环与工具分发。
+**R 结果**　stub 演示 3 轮内收敛；真实单题 2 次调用完成；单测覆盖三条出口（`answered` / `max_iter` / `repeated_tool_call`）与「重复调用只执行 1 次」，全过。
 
 **理想方案**
 
 
 
-* 把停止原因做成枚举：`answered / no_tool_call / max_iter / budget_exceeded / error`。现在统一返回 `None`，让上层猜，这是可观测性的第一处漏。
+* 停止原因做成枚举（**已做**）：`answered / max_iter / repeated_tool_call`；`budget_exceeded` 走异常、不混进返回值，`error` 类归到工具级而不是循环级——一次工具失败不该等同于整轮失败。
 
 * 迭代上限和预算上限是两个维度（调用次数 vs 时间 /token），两道都要有，不能互相替代。
 
-* 加「重复调用检测」：同一工具同一参数连续两次，注入提示或强制停，比单纯加 max\_iter 有效。
+* 重复调用检测（**已做**）：同一工具同一参数第二次出现就注入提示，累计 2 次强制停。只加 max\_iter 治不了原地打转——模型会用同样的调用把 8 轮烧完。
 
 * 长任务要可恢复：每轮把 messages + 已完成工具结果落盘，断点重跑不重复付费。
 
@@ -67,11 +71,15 @@
 
 * **源码**　[app/tools.py:34-134](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#L34-L134)（类型推导 + 参数说明解析 + `schema_for`）、[app/tools.py:136-163](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#L136-L163)（`@tool` 注册与两个业务工具）、[tests/test\_guards.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_guards.py)（schema 类型测试）
 
-**R 结果**　demo 全流程工具调度跑通，schema 与实现零漂移；`tests/test_guards.py` 6 条覆盖 int/bool/ 枚举 / 数组 / 可选 / 无注解 / 参数说明，全过。
+**R 结果**　demo 全流程工具调度跑通，schema 与实现零漂移；`tests/test_guards.py` 7 条覆盖 int/bool/ 枚举 / 数组 / 可选 / 无注解 / 参数说明；`tests/test_hardening.py` 6 条覆盖类型不符、缺必填、非法 JSON、未知工具、多余字段、以及「校验失败后回喂、模型下一轮改对」。
 
 **踩过的坑（照实写）**　第一版是「所有参数一律 `{"type": "string"}`」，模型只能靠描述去猜 int / 枚举 / 可选。改成注解推导后又踩了一个：本模块开了 `from __future__ import annotations`，签名里的注解是**字符串**，`inspect.signature` 拿到的 `p.annotation` 是 `"int"` 而不是 `int`，查表永远查不到、全部退回 string。必须用 `typing.get_type_hints(fn)` 还原成真类型对象，并且解析失败时不能炸，只退化成 string。
 
-**仍然没做（照实写）**　只处理基础类型和一层容器，`dict[str, X]` 只标 `object` 不细化 properties；参数没有 pydantic 校验层（它不是新加一个给模型看的 tool：schema 是给模型的说明书，pydantic 是代码里执行前的守门人——模型输出 JSON 之后、真正调用函数之前，先按同一份类型定义校验一遍，失败就把错误原文回喂让它改） ——schema 写得再准，模型仍可能传对类型错内容（比如 `top_k` 传 -1）。
+**执行前校验（已做）**　`validate_args()` 用 `pydantic.create_model` 按同一份 schema 动态建模型：必填给 `...`、可选给 `None` 默认、`enum` 转 `Literal`、`extra="forbid"`。模型给的 JSON 先过模型再进函数，失败抛 `参数不合法 <字段>: <原因>`，由循环转成 `role=tool` 的 `error:` 回喂，不需要新机制。它不是新加一个给模型看的 tool —— schema 是给模型的说明书，pydantic 是代码里执行前的守门人。
+
+**这一层又踩了两个坑**　① 校验后把「可选参数的 None」原样 `**args` 传下去，会覆盖掉函数自己的默认值，必须过滤掉值为 None 的键；② pydantic 默认**忽略多余字段**，模型把 `top_k` 拼成 `top\_kk` 会被静默丢掉、函数照样跑，必须 `extra="forbid"` 才报错。
+
+**仍然没做（照实写）**　`dict[str, X]` 只标 `object` 不细化 properties；没有取值范围约束（`top_k` 传 -1 类型合法，只是语义不对），要加得在 schema 里带 `minimum/maximum` 再映射到 `Field(ge=, le=)`。
 
 **理想方案**
 
@@ -149,7 +157,9 @@
 
 * 凡「绝不允许超过 X」的规则，prompt 只做引导，代码必须再夹一遍。
 
-* 封顶要带原因码 `cap_reason`，不是一个 bool；争议样本能直接回放模型原话（trace 里存 raw）。
+* 封顶带原因码（**已做**）：`cap_reason = "fact_mismatch:4.10->2.0"`，同时写进打分结果与 trace 的 `score` 事件——能回答「为什么这题只有 2.0」。用字符串不用 bool，是为以后加「回答为空 / 答非所问」也能区分。
+
+* 争议样本能直接回放模型原话（trace 里存 raw）——**仍未做**。
 
 * 六维分之间加一致性检查：correctness 低而 engineering 高的组合要么是真的工程强，要么是模型在圆场，需要二次判定。
 
@@ -314,15 +324,19 @@
 
 * 默认 `my/trace.jsonl`（不入库）；`--trace` 改路径，`--no-trace` 关掉；评测写 `eval/trace-<tag>.jsonl`
 
-* **源码**　[app/trace.py:27-172](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/trace.py#L27-L172)（`Tracer` + 四类事件 + `configure`/`set_scene`）；四处收口 [app/budget.py:31-68](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#L31-L68)、[app/agent.py:57-79](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#L57-L79)、[app/kb.py:140](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#L140)、[app/scoring.py:134](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#L134)；测试 [tests/test\_trace.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_trace.py)
+* `request()` 上下文管理器：进入生成 `ask-3f9a2b1c` 这类 `request_id`，退出恢复上一个（可嵌套）；`emit()` 每行都带它
 
-**R 结果**　真实单题实测三段齐全：`kb` 命中 Q1 召回分 20.15/7 条要点 → `llm` deepseek-chat temp=0、prompt 2131 字符、3096ms、成功 → `score` total 2.5、cap=False、covered 2 /missing 6。Web、CLI、评测三条路径自动覆盖。
+* 接线在四个入口：CLI 的 `chat / prep / ask`、整场面试的每题与每次追问、Web 的单次提交、评测的每个 case
+
+* **源码**　[app/trace.py:27-185](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/trace.py#L27-L185)（`Tracer` + 四类事件 + `request()`/`configure`/`set_scene`）；四处收口 [app/budget.py:31-68](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#L31-L68)、[app/agent.py:57-79](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#L57-L79)、[app/kb.py:140](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#L140)、[app/scoring.py:134](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#L134)；测试 [tests/test\_trace.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_trace.py)
+
+**R 结果**　真实单题实测三段齐全且同属一条父链（`request_id=ask-c46622ae`）：`kb` 命中 Q1 召回分 39.6 → `llm` 一次调用 → `score` total 0.9、`cap_applied=false`、`cap_reason=""`。三道 grep 就能把一次问答的全部事件取出来，不再靠 ts 猜先后。
 
 **理想方案**
 
 
 
-* 一条 trace 一个 `request_id`，追问时带父链，能把「这题 + 追问」串成一条会话视图。
+* 一条 trace 一个 `request_id`（**已做**）：每题 / 每次追问 / 每个评测 case 各一个窗口，`kb → llm → tool → score` 共用同一个 id。
 
 * 全量落本地、按需上传；敏感字段用白名单而不是黑名单。
 
@@ -354,11 +368,11 @@
 
 
 
-* `turns` 表补 `qid` 主键 —— 现在没有，等于报告只能按顺序关联，题目一改就对不上。
+* `turns` 表补 `qid`（**已做**）：`PRAGMA table_info` 检查后 `ALTER TABLE ADD COLUMN`，老库 11 行照常可读、历史行 qid 为空串；写入侧由 `item["qid"]` 带上，`turns()` 一并返回。
 
 * 状态 schema 带 version，升级要写迁移；单文件前端存档尤其容易踩这个坑。
 
-* 报告、trace、DB 共享同一个 `request_id`，三处能对齐。
+* 报告、trace、DB 共享同一个 `request_id` —— **仍未做**：现在 qid 已进 DB 与 trace 的 `kb/score` 事件，但报告还是靠顺序与 id 关联，没有 request\_id。
 
 
 
@@ -413,17 +427,17 @@
 
 | 维度 | 现状 | 理想 | 差距 | 可做性 |
 | --- | --- | --- | --- | --- |
-| 循环收敛 | max\_iter + 无 tool\_call 停止 | stop\_reason 枚举 + 重复调用检测 + 可恢复 | 中 | 枚举与重复检测 **可做·低成本**；断点续跑 **中等** |
-| 工具治理 | 类型从注解推导 + 无注解兜底 + 防绕过测试 | 参数校验 + 单工具超时 + 幂等键 | 中 | 参数校验 **可做·低成本**；单工具超时 **中等**；幂等键 **暂不做**（当前工具全只读） |
-| 判断分层 | 代码重算总分 + 事实不符封顶 | 加 cap\_reason + 模型原话留痕 | 低 | **可做·低成本**（加字段，不动逻辑） |
+| 循环收敛 | max\_iter + 三条 `stop_reason`（answered / max\_iter / repeated\_tool\_call）+ 重复调用强制停 | 断点续跑（messages + 工具结果落盘） | 中 | 断点续跑 **中等**（要设计落盘格式与去重） |
+| 工具治理 | 注解推导 schema + pydantic 执行前校验（类型 / 枚举 / 必填 / 多余字段）+ 防绕过测试 | 取值范围约束 + 单工具超时 + 幂等键 | 中 | 取值范围 **可做·低成本**（schema 补 minimum/maximum）；超时 **中等**；幂等键 **暂不做**（当前工具全只读） |
+| 判断分层 | 代码重算总分 + 事实不符封顶 + `cap\_reason`（带封顶前分数） | 模型原话留痕 + 六维一致性检查 | 低 | 原话留痕 **中等**（涉及隐私裁剪）；一致性检查 **需样本** |
 | 评测 | 5 题 × 3 档，每档 1 条 | 10 题 × 每档 2 条 + 多票取中位 | 高 | **可做但要预算**：扩样本约 30 次调用，多票再 ×3 |
 | 检索 | 本地 IDF，零额外调用 | 同义扩展 + 阈值回归 + 向量 A/B | 低 | 阈值回归 **可做·低成本**（trace 已有数据）；同义扩展 **中等**；向量 A/B **需调用预算** |
 | 预算 | 单一收口，四命令有上限 | 三层预算 + 超限降级策略 | 中 | 三层预算 **中等**；降级策略 **需先定产品口径**（降到哪个模型、少几道题） |
-| 观测 | 四类事件 JSONL | request\_id 父链 + 指标聚合 | 中 | 父链 **可做·低成本**；指标聚合 **中等** |
-| 状态 | SQLite 两表，可回放 | 补 qid + schema 版本迁移 | 低 | 补 qid **可做·低成本**（一条 ALTER + 两处写入）；版本迁移 **中等** |
+| 观测 | 四类事件 JSONL + `request\_id` 父链（CLI / Web / 面试每题 / 评测每 case 全覆盖） | 指标聚合（延迟 p50/p95、工具失败率、封顶率） | 中 | 指标聚合 **中等** |
+| 状态 | SQLite 两表 + `qid` 列（老库自动 ALTER 迁移） | schema 版本号 + 报告与 trace 共用 request\_id | 低 | 版本号 **中等**；报告带 request\_id **可做·低成本**（多写一列） |
 | 口径 | 诚实加分已落地并验证 | 规则变更与 golden 联动台帐 | 低 | **可做·低成本**（一张表 + 每次改口径补一行） |
 
-**按可做性排出来的顺序（低成本先做，都在半天内）**：补 qid → 循环 stop\_reason 枚举 + 重复调用检测 → cap\_reason → trace 加 request\_id 父链 → 工具参数校验。
+**五项低成本已全部落地（2026-11-10，一次做完）**：补 qid → `stop\_reason` 枚举 + 重复调用检测 → `cap\_reason` → trace 加 `request\_id` 父链 → 工具参数校验。改动落在 `app/agent.py` / `session.py` / `scoring.py` / `trace.py` / `tools.py` / `interview.py` / `web.py` / `main.py` / `eval/run.py`，新增 `tests/test\_hardening.py` 14 条，全量 **42 条**测试通过。
 
 **要先算预算再动的**：扩样本（10 题 × 每档 2 条）与多票取中位，两者都直接翻调用次数，按你反复强调的「控制调用频次」，得先确认额度再开跑。
 

@@ -13,6 +13,7 @@ from .prompts import REPORT_SYSTEM
 from .report import score_to_markdown
 from .scoring import score_answer
 from .session import SessionStore
+from .trace import get_tracer
 
 
 def run_interview(
@@ -48,14 +49,18 @@ def run_interview(
             out("（已跳过本题，不计分）")
             continue
 
-        ref = retrieve(q)
-        try:
-            item = score_answer(llm, q.get("question", ""), answer, role=role, reference=ref)
-        except BudgetExceeded as e:
-            out(f"\n[预算用尽] {e} 停止继续出题，已记录的题目仍会进报告。")
-            break
+        # 每题一个 request 窗口：这道题的 kb / llm / score 事件共用一个 request_id，
+        # 事后 grep 一条就能拿到整题的来龙去脉
+        with get_tracer().request(label=q.get("id", f"Q{i}")):
+            ref = retrieve(q)
+            try:
+                item = score_answer(llm, q.get("question", ""), answer, role=role, reference=ref)
+            except BudgetExceeded as e:
+                out(f"\n[预算用尽] {e} 停止继续出题，已记录的题目仍会进报告。")
+                break
 
         item["id"] = q.get("id", f"Q{i}")
+        item["qid"] = item["id"]  # 会话表另有 qid 列，记录题目编号，回放时能对上题库
         item["topic"] = q.get("topic", "")
         item["category"] = q.get("category", "技术")
         seq += 1
@@ -69,12 +74,14 @@ def run_interview(
             out(f"\n追问：{fu}")
             fa = input_fn("追问回答（回车跳过）> ")
             if fa and fa.strip():
-                try:
-                    fi = score_answer(llm, fu, fa, role=role, reference=retrieve({"question": fu}))
-                except BudgetExceeded as e:
-                    out(f"\n[预算用尽] {e}")
-                    break
+                with get_tracer().request(label=f"FU{i}"):
+                    try:
+                        fi = score_answer(llm, fu, fa, role=role, reference=retrieve({"question": fu}))
+                    except BudgetExceeded as e:
+                        out(f"\n[预算用尽] {e}")
+                        break
                 fi["id"] = q.get("id", f"Q{i}") + "-追问"
+                fi["qid"] = fi["id"]
                 fi["topic"] = q.get("topic", "")
                 fi["category"] = "追问"
                 seq += 1
