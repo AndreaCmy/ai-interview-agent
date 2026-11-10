@@ -304,6 +304,9 @@
 
 * 预算用尽时输出「已完成的结论 + 未完成的原因」，别让用户只看到异常。
 
+* 重复请求不该各花一次预算（**已做**，2026-11-10 实战踩到）：一场 10 题面试预算 11 次，复盘接口被连点两次，两个请求并发进入——前一个拿走最后 1 次调用（21 秒），后一个在 `calls >= max_calls` 处被拦下，落成一份「降级报告」。账没有超，但用户看到的是「预算不足」。排障只看 trace 就能定性：`call_no=11` 跨 12:43:27→12:43:49，两份产物分别写盘于 12:43:34 与 12:43:49，而全文件只有一个 `llm` 事件 ⇒ 并发重复，不是真超支。修法是**幂等 + 单飞**：`_report_lock` 包住整个 `make_report`，`state.report_md` 已存在就直接返回上一份（`cached=True`），前端在请求期间禁用按钮。原则是「预算是钱，重试和重复点击都不该各花一次」。
+  * **源码**　[app/web.py:195-215](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/web.py#L195-L215)（`_report_lock` + 幂等分支）、[app/budget.py:31-36](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#L31-L36)（拦截点 `calls >= max_calls`）、[web/index.html:288-291](https://github.com/AndreaCmy/ai-interview-agent/blob/main/web/index.html#L288-L291)（前端禁用按钮）
+
 ## 8. 可观测：trace 落在同一个收口
 
 **S 场景**　最终分数是「模型判断 + 代码重算 + 封顶」三段拼出来的，只记最终分无法倒查，调参全靠玄学。
