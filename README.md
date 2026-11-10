@@ -136,10 +136,10 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
 | 02 react-demos | 下一步：并行工具、链式调用、MAX_ITER |
 | 03 stream-events | 下一步：流式输出"面试官正在思考" |
 | 04 langgraph-skeleton | 可选：把循环画成面试状态机的图 |
-| 05 harness-hooks | 下一步：打分 pre/post hook、断路器、审计记录 |
-| 06 eval-harness | 下一步：用自有 30/50 题做 golden set 评测 |
-| 07 mcp-tools | 下一步：把题库检索/打分做成 MCP 工具 |
-| 08 memory | 下一步：跨会话记忆上次薄弱点 |
+| 05 harness-hooks | **已做一部分**：`BudgetedLLM` 调用断路器、`FACT_MISMATCH_CAP` 打分前封顶、`stop_reason` 三条出口、`trace.jsonl` 审计 |
+| 06 eval-harness | **已做**：`eval/golden.jsonl` 60 条（10 题 × 每档 2 条）、排序一致性校验、`eval/trace_metrics.py` 指标聚合 |
+| 07 mcp-tools | 未做：题库检索/打分目前是进程内函数，没做成 MCP 工具 |
+| 08 memory | 未做：`turns` 已落库，跨会话薄弱点记忆还没接 |
 
 ## 路线图
 
@@ -153,27 +153,37 @@ python -m app interview --bank bank.json --max-calls 12 -o report.md
 
 接下来：
 
-- [ ] **P3 检索 + 可观测**
+- [x] **P3 检索 + 可观测**
   - [x] RAG（关键词召回）：把 `my/best-answers.md`（10 题最佳答案）解析成按题知识块，打分时召回「该讲到的要点」做覆盖度对照——输出 `covered` / `missing`，报告里逐题显示命中与漏掉的要点
     - 召回纯本地计算（中文双字 + 英文词，IDF 加权），10 题自测召回 **10/10**
     - **零额外调用**：召回只是拼进本来就要发的打分 prompt
     - 召回为空 / 低于阈值时自动退化为原行为，知识库缺失不影响面试
+    - 阈值不是拍的：从 trace 现算 212 次召回，实测区间 **38.69–63.48**、中位 48.46、p10 39.34；早期写死的 3.0 低于整个分布（等于永不弃权），改成 **`RECALL_MIN_SCORE = 35.0`**
+    - 修掉知识库三个静默 bug：题目标题同时接受 `·` / `・`、小标题走 `FIELD_ALIASES` 别名表、「有标题却零解析」写 `errors` + stderr 告警（不抛异常，不阻断面试）
   - [x] **工程加固**：`stop_reason` 三条出口（answered / max_iter / repeated_tool_call）、同一工具同参重复调用强制停、`cap_reason` 记录封顶原因、`request_id` 父链把一次问答的四类事件串起来、工具参数 pydantic 执行前校验、`turns` 表补 `qid`（老库自动 ALTER）
+  - [x] **工具参数值域**：`PARAM_LIMITS` 并进 JSON Schema，`schema_for()` 与 pydantic `Field(ge/le/min_length/max_length)` 同源 —— 说明书写的边界就是执行时拦的边界
+  - [x] **指标聚合**（零调用）：`eval/trace_metrics.py` 把 `trace.jsonl` 聚成延迟分位、工具失败率、召回命中率、封顶率、打分均值；实测 450 条事件，真实 LLM 延迟 p50 **3561 ms** / p95 **5110 ms**
+  - [x] `request_id` 落库：`turns` 表新增该列（老库自动 ALTER），报告总览表多一列 trace，并给出 `grep <id> my/trace.jsonl` 的复现入口
   - [x] `trace.jsonl`：每次 LLM 调用、工具调用、召回、打分落一行，能复现「这道题为什么给这个分」
     - 四类事件：`llm`（模型/温度/轮次/prompt 字符数/耗时/是否成功）、`tool`（工具名/参数/耗时/结果摘要）、`kb`（是否命中/命中哪题/召回分）、`score`（六维/重算总分/是否封顶/`cap_reason`/命中与漏掉）
     - 每条事件带 `request_id`：`grep ask-c46622ae my/trace.jsonl` 就能取出一次问答的全部事件
     - 默认写 `my/trace.jsonl`（不入库）；`--trace <路径>` 改位置，`--no-trace` 关掉
     - 只落「角色 + 字符数 + 前 80 字」，不把简历原文整段写进日志
-- [ ] **P4 评测 + Web**
+- [x] **P4 评测 + Web**
   - [x] FastAPI 单页：浏览器里答题、看六维分、出报告，复用 `run_interview` 的同一套打分与落库逻辑；`?replay=1` 零调用回放历史会话
-  - [x] golden set（首轮）：5 题 × 3 档 = 15 条，检查「同题内 good > mid > bad」是否成立
-    - 排序正确 **5/5**，平均分差 **2.84**（DeepSeek，温度 0）；15 条分档经本人逐条确认
+  - [x] golden set：**60 条 = 10 题 × 每档 2 条**（同题同档两条刻意写不同侧重，id 后缀 `b`），检查「同题内 good > mid > bad」是否成立
+    - **10 题全部排序正确**（DeepSeek，温度 0）；平均分差 **2.76**（首个 5 题批次 2.84，补样本批次 3.38）
+    - 同档两条的分数差 0.1–0.9：说明刻度只能当**排序**用，不能当仪器用（报告里只写「分档经本人确认」）
+    - `Q1` 事实修正（实例粒度改为「一个履约单一个实例」）后重跑：**4.90 / 2.50 / 2.00**，排序不变
     - 检索净效应：差档平均 **2.16 → 1.76**，Q1 的 CAS 错误回答从 3.30 降到 2.00
     - 过程中发现并修掉「打分器被伪具体性骗」：回答与项目事实不符时，代码端封顶总分 2.0
-    - 详见 `eval/README.md`；下一步是人工标定排序与扩样本
+    - 倒挂排查顺序固定成规则：读 `missing` → 核事实源 → 修样本 → 再动 prompt（本轮 `Q1-midb` 1.60 被 `Q1-badb` 2.00 反超，根因就是样本不够 mid，改写后 3.50 归位）
+    - 详见 `eval/README.md` 与 `docs/agent-core-notes.md` 第 5 节
 
 收尾：
 
 - [x] 实践笔记 `docs/agent-core-notes.md`：13 条来自实际返工的 Agent 工程结论（分层/评测/检索/护栏）
 - [x] **P5 作品集包装**：架构图、运行回放页、26 秒终端实录 GIF、GitHub Pages 落地页
 - [ ] **P5 收尾**：简历话术（3 条 bullet + 1 段项目描述），最后写
+
+**当前状态**：设计目标 P0–P4 全部达成（题库 / 评分 / 多轮 / 检索 / 评测 / Web / 可观测 / 预算护栏），作品集包装已上线；**唯一未完成项是 P5 的简历话术**。

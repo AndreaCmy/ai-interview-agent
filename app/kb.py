@@ -15,6 +15,7 @@ import math
 import os
 import pathlib
 import re
+import sys
 from typing import Any, Dict, List, Optional
 
 from .trace import get_tracer
@@ -22,8 +23,21 @@ from .trace import get_tracer
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_KB = ROOT / "my" / "best-answers.md"
 
+# 召回阈值：低于这个分数的命中视为「没召回」，不注入对照要点。
+# 为什么是 35.0 而不是早期写的 3.0：分数刻度是 IDF 加权和（实测 212 次召回的区间
+# 38.69–63.48，中位 48.46），3.0 远低于整个分布，等于永不弃权——参数在，但从不生效。
+# 取 35.0 = 实测最低分再留 3.7 的余量：当前题库行为不变，但阈值回到有效区间，
+# 题库扩大或题干跑偏时它会真的否决。改题库/切分方式后要重跑 eval/threshold_scan.py 复核。
+RECALL_MIN_SCORE = 35.0
+
 # 段落字段名（与 my/best-answers.md 的写法对应）
 FIELDS = ("一句话", "讲法", "关键数字", "会被追问", "边界")
+
+# 小标题别名 → 规范字段名。
+# `my/best-answers.md` 合并后把「讲法要点」改成了「怎么说（可直接背）」，
+# 但解析器只认规范名，改文档措辞就会静默解析成空字段（tests/test_kb 会因此挂）。
+# 所以别名集中放这里：以后给某一节换更好懂的小标题，只需加一行，不用动解析逻辑。
+FIELD_ALIASES = {"怎么说": "讲法", "要点": "讲法", "讲法要点": "讲法"}
 
 
 def _tokens(text: str) -> set:
@@ -36,15 +50,19 @@ def _tokens(text: str) -> set:
 
 
 def _field_key(raw: str) -> str:
-    """把「边界（最重要）」这类带括注的小标题归一成字段名。"""
-    return re.sub(r"[（(].*?[）)]", "", raw).strip()
+    """把「边界（最重要）」这类带括注的小标题归一成字段名（别名表见 FIELD_ALIASES）。"""
+    key = re.sub(r"[（(].*?[）)]", "", raw).strip()
+    return FIELD_ALIASES.get(key, key)
 
 
 def _parse_section(chunk: str) -> Optional[Dict[str, Any]]:
     lines = chunk.splitlines()
     if not lines:
         return None
-    head = re.match(r"##\s+(Q\d+)\s*·\s*(.+)", lines[0].strip())
+    # 题目标题里有两种间隔号：`·`（U+00B7）与 `・`（U+30FB，日文片假名中点）。
+    # 合并文档时手写标题用了后者，解析器只认前者 → 整库静默解析成空，召回全挂。
+    # 两种都接受：标题是给人读的，不该因为一个不可见字符让整条链路失效。
+    head = re.match(r"##\s+(Q\d+)\s*[\u00b7\u30fb]\s*(.+)", lines[0].strip())
     if not head:
         return None
     qid, topic = head.group(1), head.group(2).strip()
@@ -108,6 +126,7 @@ class KnowledgeBase:
     def __init__(self, path: str | pathlib.Path | None = None) -> None:
         self.path = pathlib.Path(path) if path else pathlib.Path(os.getenv("KB_PATH") or DEFAULT_KB)
         self.sections: List[Dict[str, Any]] = []
+        self.errors: List[str] = []  # 解析失败的原因：不抛异常打断面试，但绝不允许静默为空
         self._idf: Dict[str, float] = {}
         self._tok: List[set] = []
         self._title_tok: List[set] = []
@@ -120,10 +139,25 @@ class KnowledgeBase:
 
     def _load(self, text: str) -> None:
         chunks = re.split(r"\n(?=##\s+Q\d)", text)
+        heads = sum(1 for c in chunks if _parse_section(c) or re.match(r"##\s+Q\d", c.strip()))
         for ch in chunks:
             sec = _parse_section(ch)
             if sec and sec["points"]:
                 self.sections.append(sec)
+
+        # 自检：有题目标题却一段都没解析出来，说明字段名或标题格式对不上。
+        # 这种失败此前是完全静默的——文档改个措辞，召回就整库为空、打分退回无对照，
+        # 而且报告里看不出来。这里把它变成一条明确错误（stderr + trace），但仍然不抛异常：
+        # 知识库坏了不该让面试打不开。
+        if heads and not self.sections:
+            msg = (f"{self.path.name} 里有 {heads} 个题目标题，但一段都没解析出来："
+                   "检查小标题是否在 FIELDS/FIELD_ALIASES 里、标题分隔符是否为 · 或 ・")
+            self.errors.append(msg)
+            print(f"[KB] {msg}", file=sys.stderr)
+            try:
+                get_tracer().emit("kb_error", message=msg, path=str(self.path))
+            except Exception:
+                pass
 
         n = len(self.sections)
         df: Dict[str, int] = {}
@@ -137,7 +171,8 @@ class KnowledgeBase:
                 df[t] = df.get(t, 0) + 1
         self._idf = {t: math.log((n + 1) / (c + 0.5)) for t, c in df.items()}
 
-    def retrieve(self, question: str, topic: str = "", min_score: float = 3.0) -> Optional[Dict[str, Any]]:
+    def retrieve(self, question: str, topic: str = "", min_score: float = None) -> Optional[Dict[str, Any]]:
+        min_score = RECALL_MIN_SCORE if min_score is None else min_score
         hit = self._retrieve(question, topic, min_score)
         try:  # 观测不能影响主流程，异常静默吞掉
             get_tracer().kb_hit(question=question, hit=hit, min_score=min_score)
@@ -145,7 +180,8 @@ class KnowledgeBase:
             pass
         return hit
 
-    def _retrieve(self, question: str, topic: str = "", min_score: float = 3.0) -> Optional[Dict[str, Any]]:
+    def _retrieve(self, question: str, topic: str = "", min_score: float = None) -> Optional[Dict[str, Any]]:
+        min_score = RECALL_MIN_SCORE if min_score is None else min_score
         if not self.sections:
             return None
         q_tok = _tokens(f"{topic} {question}")

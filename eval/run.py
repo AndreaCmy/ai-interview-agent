@@ -64,11 +64,14 @@ def main() -> int:
     ap.add_argument("--tiers", nargs="*", default=None, help="只跑指定档位，如 bad mid")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--qids", nargs="*", default=None, help="只跑指定题号，如 Q10")
+    ap.add_argument("--ids", nargs="*", default=None, help="只跑指定样本 id，如 Q1-goodb（补样本时避免重跑全量）")
     args = ap.parse_args()
 
     cases = load_cases(pathlib.Path(args.golden), args.tiers, args.limit)
     if args.qids:
         cases = [c for c in cases if c["qid"] in args.qids]
+    if args.ids:
+        cases = [c for c in cases if c["id"] in args.ids]
     if not cases:
         print("[错误] golden set 为空")
         return 1

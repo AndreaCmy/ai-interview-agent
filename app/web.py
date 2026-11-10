@@ -172,7 +172,7 @@ def answer(req: AnswerReq) -> Dict[str, Any]:
         except Exception:
             ref = None
 
-    with get_tracer().request(label=f"web:{q['id']}"):
+    with get_tracer().request(label=f"web:{q['id']}") as rid:
         try:
             item = score_answer(state.llm, q["question"], text, role=state.role, reference=ref)
         except BudgetExceeded as e:
@@ -180,6 +180,7 @@ def answer(req: AnswerReq) -> Dict[str, Any]:
 
     item["id"] = q["id"]
     item["qid"] = q["id"]
+    item["request_id"] = rid  # 与 interview 同一口径：报告里的这题能对上 trace
     item["topic"] = q["topic"]
     item["category"] = q["category"]
     state.turns = [t for t in state.turns if t.get("id") != q["id"]]

@@ -16,9 +16,17 @@ from __future__ import annotations
 import inspect
 import json
 import types
-from typing import Any, Callable, Dict, List, Literal, Optional, Union, get_args, get_origin, get_type_hints
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, get_args, get_origin, get_type_hints
 
 TOOLS: Dict[str, Callable] = {}
+
+# 参数值域约束：(工具名, 参数名) → JSON Schema 关键字。
+# 为什么单独一张表而不是从注解推：注解只能表达「类型」，表达不了「这个字符串 1–200 字」
+# 「这个 int 只能是 1–20」。范围是业务口径，写进 schema 才是硬约束——模型看得到边界，
+# pydantic 也照同一份约束拒绝越界值，不会出现「说明书说可以、执行时才炸」。
+PARAM_LIMITS: Dict[Tuple[str, str], Dict[str, Any]] = {
+    ("save_feedback", "note"): {"minLength": 1, "maxLength": 200},
+}
 
 # 极简题库（P0 先用内嵌题；后续接 interview-qa-standard.md 做检索）
 _SEED = [
@@ -112,6 +120,8 @@ def schema_for(fn: Callable, name: str | None = None) -> dict:
         prop = _json_type(ann)
         if pname in param_docs:
             prop["description"] = param_docs[pname]
+        # 值域约束：模型看到 minimum/maximum（或 minLength/maxLength）才知道边界在哪
+        prop.update(PARAM_LIMITS.get((name or fn.__name__, pname), {}))
         props[pname] = prop
         # 有默认值等于「可以不填」；Optional[X] 同理，别逼模型给 null
         if p.default is inspect._empty and not _is_optional(ann):
@@ -163,7 +173,7 @@ def _args_model(name: str, schema: dict):
     """按 schema 动态建一个 pydantic 模型，按工具名缓存，避免每次调用都重建。"""
     if name in _MODEL_CACHE:
         return _MODEL_CACHE[name]
-    from pydantic import ConfigDict, create_model
+    from pydantic import ConfigDict, Field, create_model
 
     fn = schema["function"]
     params = fn.get("parameters", {}) or {}
@@ -173,11 +183,19 @@ def _args_model(name: str, schema: dict):
     fields: Dict[str, Any] = {}
     for pname, prop in props.items():
         py_t = _py_type(prop)
+        # schema 里的值域关键字 → pydantic 的字段约束：说明书写什么，守门就按什么拦
+        limits = {
+            "ge": prop.get("minimum"),
+            "le": prop.get("maximum"),
+            "min_length": prop.get("minLength"),
+            "max_length": prop.get("maxLength"),
+        }
+        limits = {k: v for k, v in limits.items() if v is not None}
         if pname in required:
-            fields[pname] = (py_t, ...)
+            fields[pname] = (py_t, Field(..., **limits))
         else:
             # 不必填的参数给 None 默认值，模型少给字段也能过
-            fields[pname] = (Optional[py_t], None)
+            fields[pname] = (Optional[py_t], Field(default=None, **limits))
     # extra="forbid": 模型多塞一个 schema 里没有的参数也算不合法——
     # 否则拼错的字段会被静默丢掉，函数用自己的默认值跑，错得无声无息
     model = create_model(f"{name}_args", __config__=ConfigDict(extra="forbid"), **fields)  # type: ignore[call-overload]

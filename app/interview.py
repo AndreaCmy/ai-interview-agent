@@ -51,7 +51,7 @@ def run_interview(
 
         # 每题一个 request 窗口：这道题的 kb / llm / score 事件共用一个 request_id，
         # 事后 grep 一条就能拿到整题的来龙去脉
-        with get_tracer().request(label=q.get("id", f"Q{i}")):
+        with get_tracer().request(label=q.get("id", f"Q{i}")) as rid:
             ref = retrieve(q)
             try:
                 item = score_answer(llm, q.get("question", ""), answer, role=role, reference=ref)
@@ -61,6 +61,7 @@ def run_interview(
 
         item["id"] = q.get("id", f"Q{i}")
         item["qid"] = item["id"]  # 会话表另有 qid 列，记录题目编号，回放时能对上题库
+        item["request_id"] = rid  # 落库并进报告：报告里这题能直接对上 trace 的四条事件
         item["topic"] = q.get("topic", "")
         item["category"] = q.get("category", "技术")
         seq += 1
@@ -74,7 +75,7 @@ def run_interview(
             out(f"\n追问：{fu}")
             fa = input_fn("追问回答（回车跳过）> ")
             if fa and fa.strip():
-                with get_tracer().request(label=f"FU{i}"):
+                with get_tracer().request(label=f"FU{i}") as rid:
                     try:
                         fi = score_answer(llm, fu, fa, role=role, reference=retrieve({"question": fu}))
                     except BudgetExceeded as e:
@@ -82,6 +83,7 @@ def run_interview(
                         break
                 fi["id"] = q.get("id", f"Q{i}") + "-追问"
                 fi["qid"] = fi["id"]
+                fi["request_id"] = rid
                 fi["topic"] = q.get("topic", "")
                 fi["category"] = "追问"
                 seq += 1

@@ -59,13 +59,26 @@ def session_report_markdown(
 ) -> str:
     lines = ["# 模拟面试报告", ""]
 
-    # 1) 总览
-    lines += ["## 总览", "", "| # | 主题 | 加权总分 |", "| --- | --- | --- |"]
+    def _qid(t: Dict[str, Any], fallback: Any = "") -> str:
+        """题号：内存里的 turn 用 `id`，从库里读回来的用 `qid`（turns() 只回 qid）。
+
+        两者都不在时才用 fallback。以前只取 `id`，所以拿 DB 里的历史会话重出报告时
+        题号整列是空的——报告和库对不上，人就没法按题回查。
+        """
+        return str(t.get("id") or t.get("qid") or fallback)
+
+    # 1) 总览（带 request_id：报告 → trace 的可追链，没 id 时这列留空，老报告不受影响）
+    lines += ["## 总览", "", "| # | 主题 | 加权总分 | trace |", "| --- | --- | --- | --- |"]
     for i, t in enumerate(turns, 1):
-        lines.append(f"| {t.get('id', i)} | {t.get('topic', '')} | {t.get('total', 0):.2f} |")
+        lines.append(
+            f"| {_qid(t, i)} | {t.get('topic', '')} | {t.get('total', 0):.2f} | {t.get('request_id', '') or '—'} |"
+        )
     if turns:
         avg = sum(t.get("total", 0) for t in turns) / len(turns)
         lines += ["", f"**平均分**：{avg:.2f}（{len(turns)} 题）"]
+    if any(t.get("request_id") for t in turns):
+        lines += ["", "> trace 列是这道题在 `my/trace.jsonl` 里的父链 id。"
+                      "`grep <该 id> my/trace.jsonl` 就能拿到这题的召回、模型调用、工具调用、打分四条事件。"]
     lines.append("")
 
     # 2) 复习优先级：优先用模型给的，否则按分数升序（最弱先）
@@ -79,7 +92,7 @@ def session_report_markdown(
     else:
         weakest = sorted(turns, key=lambda x: x.get("total", 0))
         for n, t in enumerate(weakest, 1):
-            lines.append(f"{n}. **{t.get('id', n)}** {t.get('topic','')} — 得分 {t.get('total', 0):.2f}（越靠前越该先补）")
+            lines.append(f"{n}. **{_qid(t, n)}** {t.get('topic','')} — 得分 {t.get('total', 0):.2f}（越靠前越该先补）")
     lines.append("")
 
     # 3) 逐题复盘
@@ -90,7 +103,7 @@ def session_report_markdown(
             per_q[p.get("id", "")] = p
 
     for t in turns:
-        qid = t.get("id", "")
+        qid = _qid(t)
         lines.append(f"### {qid} · {t.get('topic','')}（{t.get('total', 0):.2f}）")
         lines.append("")
         lines.append(f"**题目**：{t.get('question','')}")
