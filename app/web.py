@@ -15,6 +15,8 @@ import pathlib
 import time
 from typing import Any, Dict, List, Optional
 
+import threading
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -57,6 +59,9 @@ class State:
 
 
 state = State()
+# 报告接口的并发闸门：连点两次会同时进两个请求，第二个在预算已耗尽时才进来，
+# 于是拿到「降级版」。加锁 + 幂等后，第二次直接返回第一次的结果。
+_report_lock = threading.Lock()
 
 
 def _load_bank(path: pathlib.Path) -> Dict[str, Any]:
@@ -190,19 +195,27 @@ def answer(req: AnswerReq) -> Dict[str, Any]:
 def make_report() -> Dict[str, Any]:
     if not state.turns:
         raise HTTPException(400, "还没有已计分的题目")
-    store = SessionStore(str(DB_DEFAULT))
-    store.finish(int(state.session_id))
-    store.close()
+    with _report_lock:
+        # 幂等：同一场面试里第二次点「生成复盘」直接复用上一份，不再消耗预算、也不再降级
+        if state.report_md:
+            return {"ok": True, "cached": True, "report_md": state.report_md,
+                    "report_path": state.report_path, "degraded": False,
+                    "calls": {"used": state.llm.calls if state.llm else 0,
+                              "max": state.llm.max_calls if state.llm else 0}}
 
-    data = generate_report(state.llm, state.bank or {}, state.turns, state.role) if state.llm else None
-    md = session_report_markdown(state.bank or {}, state.turns, data)
-    out = ROOT / "my" / f"report-web-{time.strftime('%Y%m%d-%H%M%S')}.md"
-    out.write_text(md, encoding="utf-8")
-    state.report_md, state.report_path = md, str(out)
-    return {"ok": True, "report_md": md, "report_path": str(out),
-            "degraded": data is None,
-            "calls": {"used": state.llm.calls if state.llm else 0,
-                      "max": state.llm.max_calls if state.llm else 0}}
+        store = SessionStore(str(DB_DEFAULT))
+        store.finish(int(state.session_id))
+        store.close()
+
+        data = generate_report(state.llm, state.bank or {}, state.turns, state.role) if state.llm else None
+        md = session_report_markdown(state.bank or {}, state.turns, data)
+        out = ROOT / "my" / f"report-web-{time.strftime('%Y%m%d-%H%M%S')}.md"
+        out.write_text(md, encoding="utf-8")
+        state.report_md, state.report_path = md, str(out)
+        return {"ok": True, "cached": False, "report_md": md, "report_path": str(out),
+                "degraded": data is None,
+                "calls": {"used": state.llm.calls if state.llm else 0,
+                          "max": state.llm.max_calls if state.llm else 0}}
 
 
 @app.get("/api/replay/{sid}")

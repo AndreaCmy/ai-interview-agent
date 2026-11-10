@@ -285,15 +285,18 @@ $('btnScore').onclick = async () => {
 };
 
 $('btnReport').onclick = async () => {
+  if($('btnReport').disabled) return;   // 连点会被后端幂等吸收，但前端也别再发第二次
+  $('btnReport').disabled = true;
   try{
     $('err').textContent='';
     const j = await post('/api/report', {});
     S.report_md = j.report_md; S.calls = j.calls;
     $('reportMd').textContent = j.report_md;
-    $('reportPath').textContent = j.report_path + (j.degraded ? '（预算不足，已降级为本地版）' : '');
+    $('reportPath').textContent = j.report_path + (j.degraded ? '（AI 话术未生成，已用本地版报告）' : (j.cached ? '（复用上一份，未再调用）' : ''));
     $('reportBox').style.display='block';
     renderChips();
   }catch(e){ $('err').textContent = e.message; }
+  finally{ $('btnReport').disabled = (S.replay === true); }
 };
 
 // 回放模式：/?replay=1 读取历史会话（零 LLM 调用）
