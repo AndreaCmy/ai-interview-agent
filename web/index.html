@@ -101,6 +101,8 @@
         <textarea id="answer" placeholder="用你自己的话讲：结构 / 参数 / 失败路径 / 怎么验证。空答不计分。"></textarea>
         <div class="row">
           <button id="btnScore" disabled>提交并打分（1 次调用）</button>
+          <button class="ghost" id="btnDraft">保存本题答案（不计调用）</button>
+          <button class="ghost" id="btnBatch">一次性提交全部（<span id="batchN">0</span> 次调用）</button>
           <span class="hint" id="scoredHint"></span>
         </div>
         <div class="err" id="err"></div>
@@ -134,8 +136,21 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let S = {questions: [], turns: [], report_md: null, calls: {used:0, max:0}, role: "—", session_id: null};
+let S = {questions: [], turns: [], drafts: {}, report_md: null, calls: {used:0, max:0}, role: "—", session_id: null};
 let cur = 0;
+
+// 草稿：只存在浏览器内存里，点「保存本题答案」才落，不触发任何 LLM 调用
+function qid(){ const q = S.questions[cur]; return q ? q.id : null; }
+function saveDraft(){ const id = qid(); if(id) S.drafts[id] = $('answer').value; }
+function draftCount(){ return S.questions.filter(q => (S.drafts[q.id]||'').trim()).length; }
+function updateBatchBtn(){
+  const n = draftCount();
+  const done = S.questions.filter(q => !!turnOf(q.id)).length;
+  $('batchN').textContent = n;
+  $('btnBatch').disabled = !n || S.replay === true || n === 0;
+  $('btnBatch').title = `已作答 ${n} 题，已打分 ${done} 题；提交时每题 1 次调用`;
+}
+function turnOf(id){ return S.turns.find(x => String(x.id).replace(/-追问$/, '') === id); }
 
 function fmt(n){ return Number(n).toFixed(2); }
 function clsTotal(t){ return t >= 3.5 ? 'score' : (t > 0 ? 'score mid' : 'score none'); }
@@ -159,7 +174,10 @@ function renderList(){
       <span class="${clsTotal(total)}">${t?fmt(total):'—'}</span>
     </div>`;
   }).join('');
-  box.querySelectorAll('.qitem').forEach(el=>el.onclick=()=>{ cur=Number(el.dataset.i); renderList(); renderPanel(); });
+  box.querySelectorAll('.qitem').forEach(el=>el.onclick=()=>{
+    saveDraft();  // 切题前先把当前输入存成草稿，避免手填的内容被冲掉
+    cur=Number(el.dataset.i); renderList(); renderPanel();
+  });
 }
 
 function renderPanel(){
@@ -169,10 +187,11 @@ function renderPanel(){
   $('tagCat').className = catClass(q.category);
   $('qMeta').textContent = `${cur+1} / ${S.questions.length} · ${q.topic||''}`;
   $('qText').textContent = q.question;
-  const t = S.turns.find(x => String(x.id).replace(/-追问$/, '') === q.id);
-  $('answer').value = t ? t.answer : '';
+  const t = turnOf(q.id);
+  $('answer').value = (S.drafts[q.id] !== undefined) ? S.drafts[q.id] : (t ? t.answer : '');
   $('btnScore').disabled = (!S.questions.length || S.replay === true);
   $('scoredHint').textContent = t ? `已打分 ${fmt(t.total)}，再次提交会覆盖本题` : '';
+  updateBatchBtn();
   renderCard(t || null);
 }
 
@@ -203,11 +222,48 @@ async function post(url, body){
   return j;
 }
 
+$('answer').addEventListener('input', ()=>{ saveDraft(); updateBatchBtn(); });
+
+$('btnDraft').onclick = () => {
+  saveDraft();
+  $('scoredHint').textContent = '已保存到草稿（不计调用），可以继续答下一题';
+  updateBatchBtn();
+  renderList();
+};
+
+// 一次性提交全部已作答的题：按题顺序逐题打分，每题仍只调 1 次，总调用数=已作答题数
+$('btnBatch').onclick = async () => {
+  const pending = S.questions.map((q,i)=>({q, i})).filter(({q}) => (S.drafts[q.id]||'').trim());
+  if(!pending.length){ $('err').textContent = '还没有填过答案'; return; }
+  $('err').textContent=''; $('btnBatch').disabled = true; $('btnScore').disabled = true;
+  let ok = 0;
+  for(const {q,i} of pending){
+    $('scoredHint').textContent = `批量打分中 ${ok+1}/${pending.length}…（每题 1 次调用）`;
+    try{
+      const j = await post('/api/answer', {index: i+1, answer: S.drafts[q.id]});
+      S.calls = j.calls;
+      const t = j.card; const idx = S.turns.findIndex(x=>x.id===t.id);
+      if(idx>=0) S.turns[idx]=t; else S.turns.push(t);
+      delete S.drafts[t.id];   // 打分成功就清掉草稿，避免再点一次批量重复计费
+      ok += 1;
+      renderList();
+    }catch(e){
+      $('err').textContent = `第 ${ok+1} 题失败：${e.message}（已成功的 ${ok} 题已保留）`;
+      break;
+    }
+  }
+  renderChips(); renderPanel();
+  $('scoredHint').textContent = `批量完成：成功 ${ok} / ${pending.length} 题`;
+  $('btnScore').disabled = (!S.questions.length || S.replay === true);
+  updateBatchBtn();
+  if(ok){ $('btnReport').disabled = false; }
+};
+
 $('btnStart').onclick = async () => {
   try{
     $('err').textContent='';
     const j = await post('/api/session', {});
-    S.questions = j.questions; S.turns=[]; S.report_md=null;
+    S.questions = j.questions; S.turns=[]; S.drafts={}; S.report_md=null;
     S.role = j.role; S.session_id = j.session_id; S.calls = {used:0, max:j.max_calls};
     cur = 0; $('reportBox').style.display='none'; $('btnReport').disabled=false;
     refresh();
@@ -222,6 +278,7 @@ $('btnScore').onclick = async () => {
     S.calls = j.calls;
     const t = j.card; const idx = S.turns.findIndex(x=>x.id===t.id);
     if(idx>=0) S.turns[idx]=t; else S.turns.push(t);
+    delete S.drafts[t.id];
     refresh();
   }catch(e){ $('err').textContent = e.message; }
   finally{ $('btnScore').disabled = (!S.questions.length || S.replay === true); }
@@ -248,7 +305,7 @@ $('btnReport').onclick = async () => {
     if(!r.ok) throw new Error(j.detail);
     S.turns = j.turns; S.session_id = j.session_id; S.role = 'AI Agent / 后端'; S.replay = true;
     S.questions = j.turns.map(t=>({id:t.id, topic:t.topic, category:t.category||'技术', question:t.question}));
-    S.calls = {used: j.turns.length + 1, max: j.turns.length + 1};
+    S.drafts = {}; S.calls = {used: j.turns.length + 1, max: j.turns.length + 1};
     cur = 0; $('btnReport').disabled = true;
     refresh();
     if(j.report_md){ $('reportMd').textContent = j.report_md; $('reportBox').style.display='block'; }
