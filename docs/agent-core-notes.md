@@ -2,9 +2,9 @@
 
 按「场景 → 任务 → 动作 → 结果 → 理想方案」组织。每条都落在本仓库的真实实现与真实返工上，理想方案给的是成熟做法与升级时机，不是空话。
 
-源码链接指向 GitHub `main` 分支，行号对应本文件所在提交；同时附仓库内路径，离线也能按行定位。
+源码链接指向 GitHub `main` 分支，行号对应本文件所在提交；链接文本直接写成「路径:行号」，即使锚点失效也能看出该看哪几行。
 
-项目基线：18 个模块 1734 行 Python，手写 ReAct loop（`app/agent.py` 83 行）+ 工具注册表 + 预算层 + 本地检索 + 六维打分 + SQLite 会话 + Web 界面。所有结论可用 git log 与 `eval/README.md` 复核。
+项目基线：18 个模块 1854 行 Python，手写 ReAct loop（`app/agent.py` 83 行）+ 工具注册表 + 预算层 + 本地检索 + 六维打分 + SQLite 会话 + Web 界面。所有结论可用 git log 与 `eval/README.md` 复核。
 
 
 
@@ -29,7 +29,7 @@
 * 有 tool\_calls 则逐个执行，结果以 `role=tool` 回喂；工具抛异常时转成 `error: ...` 回喂，不中断循环
 
 * 到 `max_iter` 返回 `iterations=max_iter, final=None`
-* **源码**　[`app/agent.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#LL15-L83)　仓库内 `app/agent.py:15-83`；[`tests/test_offline.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_offline.py)（循环与工具分发测试）
+* **源码**　[app/agent.py:15-83](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#L15-L83)（`run_agent` 主循环）、[tests/test_offline.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_offline.py)（循环与工具分发测试）
 
 **R 结果**　stub 演示 3 轮内收敛；真实单题 2 次调用完成；离线测试 20 条覆盖循环与工具分发。
 
@@ -59,12 +59,18 @@
 
 * `tool_schemas()` 用 `inspect.signature` 生成 OpenAI function schema，docstring 第一行当 description
 
+* 类型从注解推导：`int → integer`、`float → number`、`bool → boolean`、`list[str] → array[string]`、`Literal["a","b"] → enum`；`Optional[X]` 或有默认值的参数不进 `required`
+
+* docstring 的 `Args:` 段按 `name: 说明` 解析成每个参数的 description；没有注解的参数退回 `string`，与旧行为兼容
+
 * 业务工具两个：`next_question`（题库轮换）、`save_feedback`
-* **源码**　[`app/tools.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#LL22-L56)（`@tool` 注册 + schema 生成）、[`app/tools.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#LL57-L68)（两个业务工具）　仓库内 `app/tools.py:22-68`
+* **源码**　[app/tools.py:34-134](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#L34-L134)（类型推导 + 参数说明解析 + `schema_for`）、[app/tools.py:136-163](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/tools.py#L136-L163)（`@tool` 注册与两个业务工具）、[tests/test_guards.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_guards.py)（schema 类型测试）
 
-**R 结果**　demo 全流程工具调度跑通，schema 与实现零漂移。
+**R 结果**　demo 全流程工具调度跑通，schema 与实现零漂移；`tests/test_guards.py` 6 条覆盖 int/bool/枚举/数组/可选/无注解/参数说明，全过。
 
-**已知局限（照实写）**　所有参数一律生成 `{"type": "string"}`，类型没从注解推导，模型只能靠描述去猜 int / 枚举 / 可选。
+**踩过的坑（照实写）**　第一版是「所有参数一律 `{"type": "string"}`」，模型只能靠描述去猜 int / 枚举 / 可选。改成注解推导后又踩了一个：本模块开了 `from __future__ import annotations`，签名里的注解是**字符串**，`inspect.signature` 拿到的 `p.annotation` 是 `"int"` 而不是 `int`，查表永远查不到、全部退回 string。必须用 `typing.get_type_hints(fn)` 还原成真类型对象，并且解析失败时不能炸，只退化成 string。
+
+**仍然没做（照实写）**　只处理基础类型和一层容器，`dict[str, X]` 只标 `object` 不细化 properties；参数没有 pydantic 校验层——schema 写得再准，模型仍可能传对类型错内容（比如 `top_k` 传 -1）。
 
 **理想方案**
 
@@ -93,7 +99,7 @@
 * 打分规则单独放 `app/prompts.py` 的 `SCORING_SYSTEM`；报告另有 `REPORT_SYSTEM`
 
 * 检索到的要点以「以下是参考要点，不是候选人的话」的形式注入打分 prompt，不入 system
-* **源码**　[`app/main.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/main.py#LL29-L33)（人设 `SYSTEM`）、[`app/prompts.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#LL10)（`SCORING_SYSTEM`）与第 41 行 `REPORT_SYSTEM`　仓库内 `app/main.py:29-33`、`app/prompts.py:10`
+* **源码**　[app/main.py:29-33](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/main.py#L29-L33)（人设 `SYSTEM`）、[app/prompts.py:10-40](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#L10-L40)（`SCORING_SYSTEM`，第 41 行起是 `REPORT_SYSTEM`）
 
 **R 结果**　改评分口径（提交 `85f5ba7`）没有改变出题与追问行为；Q8-good 4.10 → 4.50，其余题排序不变。
 
@@ -128,7 +134,7 @@
 * 总分由 `app/scoring.py` 按 .30/.20/.20/.10/.10/.10 重算，模型的 `total` 直接丢弃
 
 * 六维 clamp 0–5；`fact_mismatch: true` 时 `FACT_MISMATCH_CAP = 2.0` 强制封顶，同时记 `cap_applied`
-* **源码**　[`app/scoring.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#LL74-L105)（`score_answer` + 重算 + 封顶；第 23 行是常量）、[`app/prompts.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#LL10-L40)（`fact_mismatch` 字段来源）　仓库内 `app/scoring.py:74-105`
+* **源码**　[app/scoring.py:74-105](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#L74-L105)（`score_answer` + 重算 + 封顶，常量在第 23 行）、[app/prompts.py:10-40](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#L10-L40)（`fact_mismatch` 字段的来源）
 
 **R 结果**　Q10 编造「丢 3 万单、回补两小时」的回答先 2.40，prompt 加「事实不符不加分」无效；加「correctness ≤ 2」只降到 1.80（engineering 仍有保底 3）；代码封顶后稳定压在 2.00 以下，排序恢复正确。
 
@@ -161,7 +167,7 @@
 * 倒挂时先读 `covered / missing`：模型把关键点列进 missing，说明样本根本没答到题
 
 * 每个数字指回事实源（`/tmp/deck_src.txt` 的演示稿原文）
-* **源码**　[`eval/build_golden.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/build_golden.py#LL20)（`ANSWERS` 唯一真源）、[`eval/golden.jsonl`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/golden.jsonl)（15 条产物）、[`eval/run.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/run.py#LL74-L95)（跑法与排序表）　仓库内 `eval/build_golden.py:20`
+* **源码**　[eval/build_golden.py:20](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/build_golden.py#L20)（`ANSWERS` 唯一真源）、[eval/golden.jsonl](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/golden.jsonl)（15 条产物）、[eval/run.py:74-95](https://github.com/AndreaCmy/ai-interview-agent/blob/main/eval/run.py#L74-L95)（跑法与排序表）
 
 **R 结果**　5 次倒挂全部定位到样本：Q10 根因写错（说成内存泄漏）、Q3 口径不符（删除缓存 vs 写前校验）、Q8-good 答非所问、Q8-mid 三处与事实相反（checkpointer / 权限靠 prompt / 做了重排）、Q8「4 节点 / 5 步」两个数混说。修完后 5/5 排序正确，平均分差 2.84。
 
@@ -193,8 +199,8 @@
 
 * 召回结果只作「覆盖度对照」注入打分 prompt，不做答案
 
-* 召回为空 → 退化成原行为，链路与没有检索时完全一致
-* **源码**　[`app/kb.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#LL140-L166)（`retrieve` 外层 + `_retrieve` IDF 打分；第 158 行 +2.5 加权、第 161 行阈值 3.0）、[`app/kb.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#LL26-L104)（字段解析，两个静默 bug 的修复处）　仓库内 `app/kb.py:140-166`
+* 召回为空 → 退化成「原行为」，即**接检索之前的那条链路**：不往打分 prompt 里插任何知识块，其余（六维打分、代码重算、封顶、trace）一字不变。所以关检索与接检索两次跑，同一份答案的差异只可能来自那段知识块，对照才成立
+* **源码**　[app/kb.py:140-166](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#L140-L166)（`retrieve` + `_retrieve`，+2.5 加权在第 158 行、阈值在第 161 行）、[app/kb.py:26-104](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#L26-L104)（字段解析）
 
 **R 结果**　10 题召回 10/10，召回分 39–63；同一份错答案（Q1 CAS 版）3.90 → 2.40；关检索与接检索对比，差档平均 2.16 → 1.76（Q1 降幅最大 3.30 → 2.00）。
 
@@ -212,11 +218,11 @@
 
 * 先做「零额外调用的本地召回」，确认有净收益再上向量库；向量化的收益必须做 A/B 才能立项。
 
-* 召回必须可被否证：trace 记 `hit / qid / score / points`，阈值调整有数据支撑。
+* 召回必须可被否证：trace 记 `hit / qid / score / points`，阈值调整有数据支撑。例：Q1「分布式状态机」召回分 20.15、命中 7 条要点；把阈值从 3.0 提到 25.0，这一题直接返回 None、`hit=false`，分数从 4.90 掉回关检索时的水平——阈值是高还是低，一次跑就能证伪，不用凭感觉
 
 * 解析层加断言：**解析出 0 个字段直接报错**，别让错误漂到下游。
 
-* 召回做对照不做答案；否则模型会拿要点冒充候选人，评分变成抄答案。
+* 召回做对照不做答案；否则模型会拿要点冒充候选人，评分变成抄答案。例：Q1 要点写「并发控制与幂等：单飞 + CAS」，候选人的回答只说了「加了分布式锁」，没提 CAS 与幂等——`covered` 不给这一点，`missing` 里点名「并发控制与幂等」；反过来候选人说「用写前校验 + 事件覆盖，不设 TTL」，命中「缓存一致性」那一组要点。要点是**尺子**，不是**答案**：模型只能拿它判断说到没说到，不能把它当自己的话复述给用户
 
 
 
@@ -239,7 +245,7 @@
 * 口径写死：`ask` 1 次、`prep` 1 次、`chat` 8 次、`interview` 题数 + 1
 
 * 本次补漏发现：`ask / prep / chat` 原本直接 new 裸 `RealLLM`，**完全没有护栏**
-* **源码**　[`app/budget.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#LL18-L68)（`BudgetedLLM` 与 `BudgetExceeded`）、[`app/main.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/main.py#LL79-L160)（四条命令的预算口径）　仓库内 `app/budget.py:18-68`
+* **源码**　[app/budget.py:18-68](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#L18-L68)（`BudgetedLLM` 与 `BudgetExceeded`）、[app/main.py:79-160](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/main.py#L79-L160)（四条命令的预算口径）、[tests/test_guards.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_guards.py)（绕过检查）
 
 **R 结果**　三条路径补上包装层后，评测 15/15 次精确用满、不超；面试按题数线性可预算。
 
@@ -247,7 +253,7 @@
 
 
 
-* 一个进程一个 LLM factory，业务代码禁止直接实例化 client；CI 加一条 grep 检查绕过。
+* 一个进程一个 LLM factory，业务代码禁止直接实例化 client；CI 加一条 grep 检查绕过。具体是：全仓只有 `app/main.py` 的 `_make_real()` 和 `app/web.py` 的 `_make_llm()` 允许出现 `RealLLM(`，且必须写成 `BudgetedLLM(RealLLM(), max_calls=...)`同一行；其他任何模块自己 new 一个，就等于绕过预算、直接烧钱。这条约定不能只写在文档里——**已落成 `tests/test_guards.py` 的一条断言**：扫描 `app/*.py`，出现 `RealLLM(` 而同一行没有 `BudgetedLLM(` 就失败并点名文件行号。这条测试第一次跑就抓到了 `app/web.py`，确认它其实包了预算才算通过
 
 * 预算分三层：单请求 / 单会话 / 单日；超限要有降级策略（降模型、少追问、跳过非关键步骤），而不是直接抛错给用户。
 
@@ -274,7 +280,7 @@
 * 写失败自动 `enabled=False` 静默降级，观测绝不影响面试
 
 * 默认 `my/trace.jsonl`（不入库）；`--trace` 改路径，`--no-trace` 关掉；评测写 `eval/trace-<tag>.jsonl`
-* **源码**　[`app/trace.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/trace.py#LL27-L172)（`Tracer` + 四类事件 + `configure` / `set_scene`），四处收口：[`budget.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#LL31-L68)、[`agent.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#LL57-L79)、[`kb.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#LL140)、[`scoring.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#LL134)　测试：[`tests/test_trace.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_trace.py)　仓库内 `app/trace.py:27-172`
+* **源码**　[app/trace.py:27-172](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/trace.py#L27-L172)（`Tracer` + 四类事件 + `configure`/`set_scene`）；四处收口 [app/budget.py:31-68](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/budget.py#L31-L68)、[app/agent.py:57-79](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/agent.py#L57-L79)、[app/kb.py:140](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/kb.py#L140)、[app/scoring.py:134](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#L134)；测试 [tests/test_trace.py](https://github.com/AndreaCmy/ai-interview-agent/blob/main/tests/test_trace.py)
 
 **R 结果**　真实单题实测三段齐全：`kb` 命中 Q1 召回分 20.15/7 条要点 → `llm` deepseek-chat temp=0、prompt 2131 字符、3096ms、成功 → `score` total 2.5、cap=False、covered 2 /missing 6。Web、CLI、评测三条路径自动覆盖。
 
@@ -305,7 +311,7 @@
 * 报告从 DB 重新生成，不从内存状态拼
 
 * 低分（<3.0）且题库带追问时自动追问，`--max-followups` 限次并计入预算
-* **源码**　[`app/session.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/session.py#LL12-L90)（`SessionStore` 两张表）、[`app/interview.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/interview.py#LL67-L85)（追问判定与预算扣减）　仓库内 `app/session.py:12-90`
+* **源码**　[app/session.py:12-90](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/session.py#L12-L90)（`SessionStore` 两张表）、[app/interview.py:67-85](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/interview.py#L67-L85)（追问判定与预算扣减）
 
 **R 结果**　终端 10 题 + Web 1 题各成一场，整场报告 157 行、均分 3.01，可随时重生成。
 
@@ -347,7 +353,7 @@
   * 反向同样算事实不符（已做的说成没做，也是错）
 
 * 这条口径由用户拍板，写进文档留痕，不靠模型自己领会
-* **源码**　[`app/prompts.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#LL10-L40)（「承认未做/缺口」整节）、[`scoring.py`](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#LL23)（封顶常量）　仓库内 `app/prompts.py:10-40`
+* **源码**　[app/prompts.py:10-40](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/prompts.py#L10-L40)（「承认未做/缺口」整节）、[app/scoring.py:23](https://github.com/AndreaCmy/ai-interview-agent/blob/main/app/scoring.py#L23)（封顶常量）
 
 **R 结果**　Q8-good 4.10 → 4.50，排序不变；同时连带查出两个不干净的 mid 样本（Q3、Q8），修后 2.70 / 2.60。
 
@@ -372,7 +378,7 @@
 | 维度   | 现状                          | 理想                             | 差距 |
 | ---- | --------------------------- | ------------------------------ | -- |
 | 循环收敛 | max\_iter + 无 tool\_call 停止 | stop\_reason 枚举 + 重复调用检测 + 可恢复 | 中  |
-| 工具治理 | schema 同源，但参数全 string       | 注解推导类型 + 超时 + 幂等键              | 高  |
+| 工具治理 | 类型从注解推导 + 无注解兜底 + 防绕过测试 | 参数校验 + 单工具超时 + 幂等键            | 中  |
 | 判断分层 | 代码重算总分 + 事实不符封顶             | 加 cap\_reason + 模型原话留痕         | 低  |
 | 评测   | 5 题 × 3 档，每档 1 条            | 10 题 × 每档 2 条 + 多票取中位          | 高  |
 | 检索   | 本地 IDF，零额外调用                | 同义扩展 + 阈值回归 + 向量 A/B           | 低  |
